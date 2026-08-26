@@ -354,7 +354,7 @@ package axil_test_pkg;
             end
           end
         join_any
-        disable mst_write_reg_fork; //事务完成或超时，回收所有线程
+        disable fork; //事务完成或超时，回收所有线程
         if(result.txn_result == TIMEOUT) begin
             return;
         end
