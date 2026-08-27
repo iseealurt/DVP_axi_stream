@@ -261,7 +261,84 @@ package axil_test_pkg;
     endfunction
   endclass
 
-  class axil_slave#(
+  class axil_slv_param#(
+    parameter int ADDR_W = 32 ,
+    parameter int DATA_W = 128 ,
+    parameter int ID_W   = 4
+  );
+    // ---------------------- Business layer: randomizer ----------------------
+    rand logic [DATA_W-1:0] rdata; // 读事务返回的数据
+    rand axil_resp_e        resp;  // 写/读事务返回的响应
+    rand int                aw_dly; // AW ready 应答延迟
+    rand int                w_dly;  // W  ready 应答延迟
+    rand int                ar_dly; // AR ready 应答延迟
+    rand int                r_dly;  // R  valid 应答延迟
+
+    // ---------------------- Control layer: test settings, not randomized ----------------------
+    int          dly_lo;
+    int          dly_hi;
+    int          max_timeout_cycle = 100;
+    bit          reset_assert = 1'b0;
+    axil_resp_e  resp_expect = OKAY; // 期望驱动的响应, 与 mst 侧判定对齐; 随机模式下作为锚点
+
+    // ---------------------- Default legal ranges (soft, directed can override) ----------------------
+    constraint c_rdata { soft rdata inside {[0 : $]}; }
+    constraint c_resp  { soft resp  inside {OKAY, SLVERR, DECERR}; }
+    constraint c_dly   {
+      aw_dly inside {[dly_lo : dly_hi]};
+      w_dly  inside {[dly_lo : dly_hi]};
+      ar_dly inside {[dly_lo : dly_hi]};
+      r_dly  inside {[dly_lo : dly_hi]};
+      aw_dly < max_timeout_cycle;
+      w_dly  < max_timeout_cycle;
+      ar_dly < max_timeout_cycle;
+      r_dly  < max_timeout_cycle;
+    }
+
+    // ---------------------- Directed mode: disable randomization, keep fixed values ----------------------
+    function bit set_directed(
+      input logic [DATA_W-1:0] rdata_dir,
+      input axil_resp_e        resp_dir,
+      input int aw_dly_dir,
+      input int w_dly_dir,
+      input int ar_dly_dir,
+      input int r_dly_dir
+    );
+      if(aw_dly_dir > max_timeout_cycle || w_dly_dir > max_timeout_cycle ||
+         ar_dly_dir > max_timeout_cycle || r_dly_dir > max_timeout_cycle) begin
+        $error("[ERROR] Directed test failed when set class axil_slv_param");
+        return 1'b0;
+      end
+      else begin
+        rdata.rand_mode(0);
+        resp.rand_mode(0);
+        aw_dly.rand_mode(0);
+        w_dly.rand_mode(0);
+        ar_dly.rand_mode(0);
+        r_dly.rand_mode(0);
+        rdata = rdata_dir;
+        resp  = resp_dir;
+        aw_dly = aw_dly_dir;
+        w_dly  = w_dly_dir;
+        ar_dly = ar_dly_dir;
+        r_dly  = r_dly_dir;
+        return 1'b1;
+      end
+    endfunction
+
+    // ---------------------- Random mode: re-enable randomization ----------------------
+    function bit set_random();
+      rdata.rand_mode(1);
+      resp.rand_mode(1);
+      aw_dly.rand_mode(1);
+      w_dly.rand_mode(1);
+      ar_dly.rand_mode(1);
+      r_dly.rand_mode(1);
+      return 1'b1;
+    endfunction
+  endclass
+
+  class axil_slv_driver#(
     parameter int ADDR_W = 32 ,
     parameter int DATA_W = 128 ,
     parameter int ID_W   = 4
@@ -290,173 +367,237 @@ package axil_test_pkg;
         this.vif_slv_axil_wb = vif_slv_axil_wb;
     endfunction
 
-      task automatic slv_write_respond(
-        input int task_id,
-        input string task_name,
-        input int max_timeout_cycle,
-        input bit reset_assert,
-        input axil_resp_e resp_assert,
-        output txn_result_e result
-      );
-        string err_msg;
-        axil_resp_e b_resp = OKAY;
-        bit txn_done;
-        bit aw_done;
-        bit dw_done;
-        logic [ADDR_W-1:0] rcv_addr;
-        logic [DATA_W-1:0] rcv_data;
-        result.txn_id = task_id;
-        result.txn_name = task_name;
+    task automatic slv_write_respond(
+      input int task_id,
+      input string task_name,
+      input axil_slv_param#(ADDR_W, DATA_W, ID_W) p,
+      output txn_result_e result
+    );
+      string err_msg;
+      axil_resp_e b_resp = p.resp;
+      bit txn_done;
+      bit aw_done;
+      bit dw_done;
+      logic [ADDR_W-1:0] rcv_addr;
+      logic [DATA_W-1:0] rcv_data;
+      result.txn_id = task_id;
+      result.txn_name = task_name;
+      result.txn_result = PASS;
+      result.txn_reason = "";
+      //reset all 
+      if(p.reset_assert) begin
+        vif_slv_axil_aw.rst = 1'b1;
+        vif_slv_axil_dw.rst = 1'b1;
+        vif_slv_axil_wb.rst = 1'b1;
+        repeat(10) @(vif_slv_axil_aw.cb);
+        vif_slv_axil_aw.rst = 1'b0;
+        vif_slv_axil_dw.rst = 1'b0;
+        vif_slv_axil_wb.rst = 1'b0;
+      end
+      fork : slv_write_respond_fork
+        begin : aw_rcv
+          repeat (p.aw_dly) @(vif_slv_axil_aw.cb);
+          vif_slv_axil_aw.awready <= 1'b1; //从机可接收地址
+          wait (vif_slv_axil_aw.awvalid && vif_slv_axil_aw.awready) begin
+          rcv_addr = vif_slv_axil_aw.awaddr;
+          aw_done = 1'b1;
+          end
+          vif_slv_axil_aw.awready <= 1'b0;
+          wait (txn_done); //事务结束前不退出本分支
+        end
+        begin : dw_rcv
+          repeat (p.w_dly) @(vif_slv_axil_dw.cb);
+          vif_slv_axil_dw.wready <= 1'b1; //从机可接收数据
+          wait (vif_slv_axil_dw.wvalid && vif_slv_axil_dw.wready) begin
+          rcv_data = vif_slv_axil_dw.wdata;
+          dw_done = 1'b1;
+          end
+          vif_slv_axil_dw.wready <= 1'b0;
+          wait (txn_done); //事务结束前不退出本分支
+        end
+        begin : wb_send
+          wait (aw_done && dw_done); //AW和W都接收完成后才回BVALID
+          @(vif_slv_axil_wb.cb);
+          vif_slv_axil_wb.bvalid <= 1'b1;
+          vif_slv_axil_wb.bresp <= p.resp;
+          wait (vif_slv_axil_wb.bvalid && vif_slv_axil_wb.bready) begin
+          vif_slv_axil_wb.bvalid <= 1'b0;
+          end
+          txn_done = 1'b1; //B握手完成，事务结束
+        end
+        begin : timeout_monitor
+          repeat(p.max_timeout_cycle) @(vif_slv_axil_aw.cb);
+          if (!txn_done) begin
+            err_msg = $sformatf("@%0t [TIMEOUT] slave write task %0d timeout for %0d cycles",$time,task_id,p.max_timeout_cycle);
+            result.txn_reason = err_msg;
+            result.txn_result = TIMEOUT;
+            $error("%s",err_msg);
+            txn_done = 1'b1;
+          end
+        end
+      join_any
+      disable slv_write_respond_fork; //事务完成或超时，回收所有线程
+      result.txn_addr = rcv_addr; //记录接收到的地址
+      result.txn_data = rcv_data; //记录接收到的数据
+      if(result.txn_result == TIMEOUT) begin
+          return;
+      end
+      else if(b_resp != p.resp_expect) begin
+        result.txn_result = FAIL;
+        result.txn_reason = $sformatf("got %s, expect %s", b_resp.name(), p.resp_expect.name());
+        return;
+      end
+      else begin
         result.txn_result = PASS;
-        result.txn_reason = "";
-        //reset all 
-        if(reset_assert) begin
-          vif_slv_axil_aw.rst = 1'b1;
-          vif_slv_axil_dw.rst = 1'b1;
-          vif_slv_axil_wb.rst = 1'b1;
-          repeat(10) @(vif_slv_axil_aw.cb);
-          vif_slv_axil_aw.rst = 1'b0;
-          vif_slv_axil_dw.rst = 1'b0;
-          vif_slv_axil_wb.rst = 1'b0;
-        end
-        fork : slv_write_respond_fork
-          begin : aw_rcv
-            @(vif_slv_axil_aw.cb);
-            vif_slv_axil_aw.awready <= 1'b1; //从机可接收地址
-            wait (vif_slv_axil_aw.awvalid && vif_slv_axil_aw.awready) begin
-            rcv_addr = vif_slv_axil_aw.awaddr;
-            aw_done = 1'b1;
-            end
-            vif_slv_axil_aw.awready <= 1'b0;
-            wait (txn_done); //事务结束前不退出本分支
-          end
-          begin : dw_rcv
-            @(vif_slv_axil_dw.cb);
-            vif_slv_axil_dw.wready <= 1'b1; //从机可接收数据
-            wait (vif_slv_axil_dw.wvalid && vif_slv_axil_dw.wready) begin
-            rcv_data = vif_slv_axil_dw.wdata;
-            dw_done = 1'b1;
-            end
-            vif_slv_axil_dw.wready <= 1'b0;
-            wait (txn_done); //事务结束前不退出本分支
-          end
-          begin : wb_send
-            wait (aw_done && dw_done); //AW和W都接收完成后才回BVALID
-            @(vif_slv_axil_wb.cb);
-            vif_slv_axil_wb.bvalid <= 1'b1;
-            vif_slv_axil_wb.bresp <= resp_assert;
-            wait (vif_slv_axil_wb.bvalid && vif_slv_axil_wb.bready) begin
-            vif_slv_axil_wb.bvalid <= 1'b0;
-            end
-            txn_done = 1'b1; //B握手完成，事务结束
-          end
-          begin : timeout_monitor
-            repeat(max_timeout_cycle) @(vif_slv_axil_aw.cb);
-            if (!txn_done) begin
-              err_msg = $sformatf("@%0t [TIMEOUT] slave write task %0d timeout for %0d cycles",$time,task_id,max_timeout_cycle);
-              result.txn_reason = err_msg;
-              result.txn_result = TIMEOUT;
-              $error("%s",err_msg);
-              txn_done = 1'b1;
-            end
-          end
-        join_any
-        disable slv_write_respond_fork; //事务完成或超时，回收所有线程
-        result.txn_addr = rcv_addr; //记录接收到的地址
-        result.txn_data = rcv_data; //记录接收到的数据
-        if(result.txn_result == TIMEOUT) begin
-            return;
-        end
-        else if(b_resp != OKAY) begin
-          result.txn_result = FAIL;
-          result.txn_reason = b_resp.name();
-          return;
-        end
-        else begin
-          result.txn_result = PASS;
-          result.txn_reason = b_resp.name();
-          return;
-        end
-      endtask 
+        result.txn_reason = p.resp_expect.name();
+        return;
+      end
+    endtask 
 
-      task automatic slv_read_respond(
-        input int task_id,
-        input string task_name,
-        input int max_timeout_cycle,
-        input bit reset_assert,
-        input logic [DATA_W-1:0] rdata,
-        output txn_result_e result
-      );
-        string err_msg;
-        axil_resp_e r_resp = OKAY;
-        bit txn_done;
-        bit ar_done;
-        logic [ADDR_W-1:0] rcv_addr;
-        result.txn_id = task_id;
-        result.txn_name = task_name;
+    task automatic slv_read_respond(
+      input int task_id,
+      input string task_name,
+      input axil_slv_param#(ADDR_W, DATA_W, ID_W) p,
+      output txn_result_e result
+    );
+      string err_msg;
+      axil_resp_e r_resp = p.resp;
+      bit txn_done;
+      bit ar_done;
+      logic [ADDR_W-1:0] rcv_addr;
+      result.txn_id = task_id;
+      result.txn_name = task_name;
+      result.txn_result = PASS;
+      result.txn_reason = "";
+      //reset all 
+      if(p.reset_assert) begin
+        vif_slv_axil_ar.rst = 1'b1;
+        vif_slv_axil_dr.rst = 1'b1;
+        repeat(10) @(vif_slv_axil_ar.cb);
+        vif_slv_axil_ar.rst = 1'b0;
+        vif_slv_axil_dr.rst = 1'b0;
+      end
+      fork : slv_read_respond_fork
+        begin : ar_rcv
+          repeat (p.ar_dly) @(vif_slv_axil_ar.cb);
+          vif_slv_axil_ar.arready <= 1'b1; //从机可接收地址
+          wait (vif_slv_axil_ar.arvalid && vif_slv_axil_ar.arready) begin
+          rcv_addr = vif_slv_axil_ar.araddr;
+          ar_done = 1'b1;
+          end
+          vif_slv_axil_ar.arready <= 1'b0;
+          wait (txn_done); //事务结束前不退出本分支
+        end
+        begin : r_send
+          wait (ar_done); //AR握手完成后才回RVALID
+          repeat (p.r_dly) @(vif_slv_axil_dr.cb);
+          vif_slv_axil_dr.rvalid <= 1'b1;
+          vif_slv_axil_dr.rdata <= p.rdata;
+          vif_slv_axil_dr.rresp <= p.resp;
+          wait (vif_slv_axil_dr.rvalid && vif_slv_axil_dr.rready) begin
+          vif_slv_axil_dr.rvalid <= 1'b0;
+          end
+          txn_done = 1'b1; //R握手完成，事务结束
+        end
+        begin : timeout_monitor
+          repeat(p.max_timeout_cycle) @(vif_slv_axil_ar.cb);
+          if (!txn_done) begin
+            err_msg = $sformatf("@%0t [TIMEOUT] slave read task %0d timeout for %0d cycles",$time,task_id,p.max_timeout_cycle);
+            result.txn_reason = err_msg;
+            result.txn_result = TIMEOUT;
+            $error("%s",err_msg);
+            txn_done = 1'b1;
+          end
+        end
+      join_any
+      disable slv_read_respond_fork; //事务完成或超时，回收所有线程
+      result.txn_addr = rcv_addr; //记录接收到的地址
+      result.txn_data = p.rdata; //记录读出的数据
+      if(result.txn_result == TIMEOUT) begin
+          return;
+      end
+      else if(r_resp != p.resp_expect) begin
+        result.txn_result = FAIL;
+        result.txn_reason = $sformatf("got %s, expect %s", r_resp.name(), p.resp_expect.name());
+        return;
+      end
+      else begin
         result.txn_result = PASS;
-        result.txn_reason = "";
-        //reset all 
-        if(reset_assert) begin
-          vif_slv_axil_ar.rst = 1'b1;
-          vif_slv_axil_dr.rst = 1'b1;
-          repeat(10) @(vif_slv_axil_ar.cb);
-          vif_slv_axil_ar.rst = 1'b0;
-          vif_slv_axil_dr.rst = 1'b0;
-        end
-        fork : slv_read_respond_fork
-          begin : ar_rcv
-            @(vif_slv_axil_ar.cb);
-            vif_slv_axil_ar.arready <= 1'b1; //从机可接收地址
-            wait (vif_slv_axil_ar.arvalid && vif_slv_axil_ar.arready) begin
-            rcv_addr = vif_slv_axil_ar.araddr;
-            ar_done = 1'b1;
-            end
-            vif_slv_axil_ar.arready <= 1'b0;
-            wait (txn_done); //事务结束前不退出本分支
-          end
-          begin : r_send
-            wait (ar_done); //AR握手完成后才回RVALID
-            @(vif_slv_axil_dr.cb);
-            vif_slv_axil_dr.rvalid <= 1'b1;
-            vif_slv_axil_dr.rdata <= rdata;
-            vif_slv_axil_dr.rresp <= OKAY;
-            wait (vif_slv_axil_dr.rvalid && vif_slv_axil_dr.rready) begin
-            vif_slv_axil_dr.rvalid <= 1'b0;
-            end
-            txn_done = 1'b1; //R握手完成，事务结束
-          end
-          begin : timeout_monitor
-            repeat(max_timeout_cycle) @(vif_slv_axil_ar.cb);
-            if (!txn_done) begin
-              err_msg = $sformatf("@%0t [TIMEOUT] slave read task %0d timeout for %0d cycles",$time,task_id,max_timeout_cycle);
-              result.txn_reason = err_msg;
-              result.txn_result = TIMEOUT;
-              $error("%s",err_msg);
-              txn_done = 1'b1;
-            end
-          end
-        join_any
-        disable slv_read_respond_fork; //事务完成或超时，回收所有线程
-        result.txn_addr = rcv_addr; //记录接收到的地址
-        result.txn_data = rdata; //记录读出的数据
-        if(result.txn_result == TIMEOUT) begin
-            return;
-        end
-        else if(r_resp != OKAY) begin
-          result.txn_result = FAIL;
-          result.txn_reason = r_resp.name();
-          return;
-        end
-        else begin
-          result.txn_result = PASS;
-          result.txn_reason = r_resp.name();
-          return;
-        end
-      endtask 
+        result.txn_reason = p.resp_expect.name();
+        return;
+      end
+    endtask 
   endclass
   
-  class axil_driver#(
+  class axil_mst_param#(
+    parameter int ADDR_W = 32 ,
+    parameter int DATA_W = 128 ,
+    parameter int ID_W   = 4 
+  );
+    // ---------------------- Business layer: randomizer ----------------------
+    rand logic [ADDR_W-1:0]   addr;
+    rand logic [DATA_W-1:0]   data;
+    rand logic [DATA_W/8-1:0] wstrb;
+    rand int                  dw_dly; // AW->W 数据通道延迟
+    rand int                  dr_dly; // AR->R 数据通道延迟
+      
+    // ---------------------- Control layer: test settings, not randomized ----------------------
+    int          dly_lo;
+    int          dly_hi;
+    int          max_timeout_cycle = 100;
+    bit          reset_assert = 1'b0;
+    axil_resp_e  resp_expect = OKAY; // 期望响应, 定向测试可设 SLVERR/DECERR
+
+    // ---------------------- Default legal ranges (soft, directed can override) ----------------------
+    constraint c_addr  { soft addr  inside {[0 : $]}; }
+    constraint c_data  { soft data  inside {[0 : $]}; }
+    constraint c_wstrb { soft wstrb inside {[0 : $]}; }
+    constraint c_dly   {
+      dw_dly inside {[dly_lo : dly_hi]};
+      dr_dly inside {[dly_lo : dly_hi]};
+      dw_dly < max_timeout_cycle;
+      dr_dly < max_timeout_cycle;
+    }
+
+    // ---------------------- Directed mode: disable randomization, keep fixed values ----------------------
+    function bit set_directed(
+      input logic [ADDR_W-1:0] addr_dir ,
+      input logic [DATA_W-1:0] data_dir ,
+      input logic [DATA_W/8-1:0] wstrb_dir ,
+      input int dw_dly_dir ,
+      input int dr_dly_dir 
+    );
+      if(dw_dly_dir > max_timeout_cycle || dr_dly_dir > max_timeout_cycle) begin
+        $error("[ERROR] Directed test failed when set class axil_mst_param");
+        return 1'b0;
+      end
+      else begin
+        addr.rand_mode(0);
+        data.rand_mode(0);
+        wstrb.rand_mode(0);
+        dw_dly.rand_mode(0);
+        dr_dly.rand_mode(0);
+        addr   = addr_dir;
+        data   = data_dir;
+        wstrb  = wstrb_dir;
+        dw_dly = dw_dly_dir;
+        dr_dly = dr_dly_dir;
+        return 1'b1;
+      end
+    endfunction
+
+    // ---------------------- Random mode: re-enable randomization ----------------------
+    function bit set_random();
+      addr.rand_mode(1);
+      data.rand_mode(1);
+      wstrb.rand_mode(1);
+      dw_dly.rand_mode(1);
+      dr_dly.rand_mode(1);
+      return 1'b1;
+    endfunction
+  endclass
+
+  class axil_mst_driver#(
     parameter int ADDR_W = 32 ,
     parameter int DATA_W = 128 ,
     parameter int ID_W   = 4
@@ -496,11 +637,7 @@ package axil_test_pkg;
       task automatic mst_wr_reg(
         input int task_id,
         input string task_name,
-        input int max_timeout_cycle,
-        input bit reset_assert,
-        input logic [ADDR_W-1:0] addr,
-        input logic [DATA_W-1:0] data,
-        input logic [DATA_W/8-1:0] wstrb,
+        input axil_mst_param#(ADDR_W, DATA_W, ID_W) p,
         output txn_result_e result
       );
         string err_msg;
@@ -508,13 +645,13 @@ package axil_test_pkg;
         bit txn_done;
         result.txn_id = task_id;
         result.txn_name = task_name;
-        result.txn_addr = addr;
-        result.txn_data = data;
-        result.txn_strb = wstrb;
+        result.txn_addr = p.addr;
+        result.txn_data = p.data;
+        result.txn_strb = p.wstrb;
         result.txn_result = PASS;
         result.txn_reason = "";
         //reset all 
-        if(reset_assert) begin
+        if(p.reset_assert) begin
           vif_mst_axil_aw.rst = 1'b1;
           vif_mst_axil_dw.rst = 1'b1;
           vif_mst_axil_wb.rst = 1'b1;
@@ -527,15 +664,15 @@ package axil_test_pkg;
           begin : aw_test
             @(vif_mst_axil_aw.cb);
             vif_mst_axil_aw.awvalid <= 1'b1;
-            vif_mst_axil_aw.awaddr <= addr;
+            vif_mst_axil_aw.awaddr <= p.addr;
             wait (vif_mst_axil_aw.awvalid && vif_mst_axil_aw.awready) vif_mst_axil_aw.awvalid <= 1'b0;            
             wait (txn_done); //事务结束前不退出本分支
           end
           begin : dw_test
-            @(vif_mst_axil_dw.cb);
+            repeat (p.dw_dly) @(vif_mst_axil_dw.cb);
             vif_mst_axil_dw.wvalid <= 1'b1;
-            vif_mst_axil_dw.wdata <= data;
-            vif_mst_axil_dw.wstrb <= wstrb;
+            vif_mst_axil_dw.wdata <= p.data;
+            vif_mst_axil_dw.wstrb <= p.wstrb;
             wait (vif_mst_axil_dw.wvalid && vif_mst_axil_dw.wready) vif_mst_axil_dw.wvalid <= 1'b0;
             wait (txn_done); //事务结束前不退出本分支
           end
@@ -549,9 +686,9 @@ package axil_test_pkg;
             txn_done = 1'b1; //B握手完成，事务结束
           end
           begin : timeout_monitor
-            repeat(max_timeout_cycle) @(vif_mst_axil_aw.cb);
+            repeat(p.max_timeout_cycle) @(vif_mst_axil_aw.cb);
             if (!txn_done) begin
-              err_msg = $sformatf("@%0t [TIMEOUT] task %0d timeout for %0d cycles",$time,task_id,max_timeout_cycle);
+              err_msg = $sformatf("@%0t [TIMEOUT] task %0d timeout for %0d cycles",$time,task_id,p.max_timeout_cycle);
               result.txn_reason = err_msg;
               result.txn_result = TIMEOUT;
               $error("%s",err_msg);
@@ -563,14 +700,14 @@ package axil_test_pkg;
         if(result.txn_result == TIMEOUT) begin
             return;
         end
-        else if(wb_result != OKAY) begin
+        else if(wb_result != p.resp_expect) begin
           result.txn_result = FAIL;
-          result.txn_reason = wb_result.name();
+          result.txn_reason = $sformatf("got %s, expect %s", wb_result.name(), p.resp_expect.name());
           return;
         end
         else begin
           result.txn_result = PASS;
-          result.txn_reason = wb_result.name();
+          result.txn_reason = p.resp_expect.name();
           return;
         end
       endtask 
@@ -578,9 +715,7 @@ package axil_test_pkg;
       task automatic mst_rd_reg(
         input int task_id,
         input string task_name,
-        input int max_timeout_cycle,
-        input bit reset_assert,
-        input logic [ADDR_W-1:0] addr,
+        input axil_mst_param#(ADDR_W, DATA_W, ID_W) p,
         output logic [DATA_W-1:0] rdata,
         output txn_result_e result
       );
@@ -591,11 +726,11 @@ package axil_test_pkg;
         rdata = {DATA_W{1'b1}};
         result.txn_id = task_id;
         result.txn_name = task_name;
-        result.txn_addr = addr;
+        result.txn_addr = p.addr;
         result.txn_result = PASS;
         result.txn_reason = "";
         //reset all 
-        if(reset_assert) begin
+        if(p.reset_assert) begin
           vif_mst_axil_ar.rst = 1'b1;
           vif_mst_axil_dr.rst = 1'b1;
           repeat(10) @(vif_mst_axil_ar.cb);
@@ -606,12 +741,12 @@ package axil_test_pkg;
           begin : ar_test
             @(vif_mst_axil_ar.cb);
             vif_mst_axil_ar.arvalid <= 1'b1;
-            vif_mst_axil_ar.araddr <= addr;
+            vif_mst_axil_ar.araddr <= p.addr;
             wait (vif_mst_axil_ar.arvalid && vif_mst_axil_ar.arready) vif_mst_axil_ar.arvalid <= 1'b0;
             wait (txn_done); //事务结束前不退出本分支
           end
           begin : r_test
-            @(vif_mst_axil_dr.cb);
+            repeat (p.dr_dly) @(vif_mst_axil_dr.cb);
             vif_mst_axil_dr.rready <= 1'b1; //事务一开始就使能，随时可收数据
             wait (vif_mst_axil_dr.rvalid && vif_mst_axil_dr.rready) begin
             rdata = vif_mst_axil_dr.rdata;
@@ -621,9 +756,9 @@ package axil_test_pkg;
             txn_done = 1'b1; //R握手完成，事务结束
           end
           begin : timeout_monitor
-            repeat(max_timeout_cycle) @(vif_mst_axil_ar.cb);
+            repeat(p.max_timeout_cycle) @(vif_mst_axil_ar.cb);
             if (!txn_done) begin
-              err_msg = $sformatf("@%0t [TIMEOUT] task %0d timeout for %0d cycles",$time,task_id,max_timeout_cycle);
+              err_msg = $sformatf("@%0t [TIMEOUT] task %0d timeout for %0d cycles",$time,task_id,p.max_timeout_cycle);
               result.txn_reason = err_msg;
               result.txn_result = TIMEOUT;
               $error("%s",err_msg);
@@ -636,14 +771,14 @@ package axil_test_pkg;
         if(result.txn_result == TIMEOUT) begin
             return;
         end
-        else if(r_result != OKAY) begin
+        else if(r_result != p.resp_expect) begin
           result.txn_result = FAIL;
-          result.txn_reason = r_result.name();
+          result.txn_reason = $sformatf("got %s, expect %s", r_result.name(), p.resp_expect.name());
           return;
         end
         else begin
           result.txn_result = PASS;
-          result.txn_reason = r_result.name();
+          result.txn_reason = p.resp_expect.name();
           return;
         end
       endtask 
