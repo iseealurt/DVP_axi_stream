@@ -322,8 +322,7 @@ package axil_test_pkg;
             @(vif_mst_axil_aw.cb);
             vif_mst_axil_aw.awvalid <= 1'b1;
             vif_mst_axil_aw.awaddr <= addr;
-            wait (vif_mst_axil_aw.awvalid && vif_mst_axil_aw.awready);
-            vif_mst_axil_aw.awvalid <= 1'b0;
+            wait (vif_mst_axil_aw.awvalid && vif_mst_axil_aw.awready) vif_mst_axil_aw.awvalid <= 1'b0;            
             wait (txn_done); //事务结束前不退出本分支
           end
           begin : dw_test
@@ -331,16 +330,16 @@ package axil_test_pkg;
             vif_mst_axil_dw.wvalid <= 1'b1;
             vif_mst_axil_dw.wdata <= data;
             vif_mst_axil_dw.wstrb <= wstrb;
-            wait (vif_mst_axil_dw.wvalid && vif_mst_axil_dw.wready);
-            vif_mst_axil_dw.wvalid <= 1'b0;
+            wait (vif_mst_axil_dw.wvalid && vif_mst_axil_dw.wready) vif_mst_axil_dw.wvalid <= 1'b0;
             wait (txn_done); //事务结束前不退出本分支
           end
           begin : wb_test
             @(vif_mst_axil_wb.cb);
             vif_mst_axil_wb.bready <= 1'b1; //事务一开始就使能，随时可收响应
-            wait (vif_mst_axil_wb.bvalid && vif_mst_axil_wb.bready);
+            wait (vif_mst_axil_wb.bvalid && vif_mst_axil_wb.bready) begin
             wb_result = vif_mst_axil_wb.bresp;
             vif_mst_axil_wb.bready <= 1'b0;
+            end
             txn_done = 1'b1; //B握手完成，事务结束
           end
           begin : timeout_monitor

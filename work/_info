@@ -1,0 +1,165 @@
+m255
+K4
+z2
+!s11f vlog 2020.4 2020.10, Oct 13 2020
+!s112 1.1
+!i10d 8192
+!i10e 25
+!i10f 100
+cModel Technology
+Z0 dE:/SV_prj/DVP_axi_stream
+Xaxil_test_pkg
+!s115 if_axil_wb
+!s115 if_axil_dr
+!s115 if_axil_dw
+!s115 if_axil_ar
+!s115 if_axil_aw
+Z1 DXx6 sv_std 3 std 0 22 9oUSJO;AeEaW`l:M@^WG92
+Z2 !s110 1787740508
+!i10b 1
+!s100 @4`7ce`<ad6Lc3R?5VEKG1
+Z3 !s11b Dg1SIo80bB@j0V0VzS_@n1
+IWYJI?O`mN?I5?ZbnHJ=`A3
+S1
+R0
+Z4 w1787740501
+Z5 8bench/AXI4-lite.sv
+Z6 Fbench/AXI4-lite.sv
+!i122 1
+L0 195 0
+VWYJI?O`mN?I5?ZbnHJ=`A3
+Z7 OL;L;2020.4;71
+r1
+!s85 0
+31
+Z8 !s108 1787740508.000000
+!s107 bench/AXI4-lite.sv|
+Z9 !s90 bench/AXI4-lite.sv|
+!i113 0
+Z10 o-L mtiAvm -L mtiRnm -L mtiOvm -L mtiUvm -L mtiUPF -L infact
+Z11 tCvgOpt 0
+Yif_axil_ar
+R1
+R2
+!i10b 1
+!s100 nDJChOOPh2P9UV_JD4a9R3
+R3
+ICG]m6oVIok=KBB8ZzWb4K0
+S1
+R0
+R4
+R5
+R6
+!i122 1
+L0 41 0
+Z12 VDg1SIo80bB@j0V0VzS_@n1
+R7
+r1
+!s85 0
+31
+R8
+Z13 !s107 bench/AXI4-lite.sv|
+R9
+!i113 0
+R10
+R11
+Yif_axil_aw
+R1
+R2
+!i10b 1
+!s100 IGmB1_RbH^hkG8KF=824>3
+R3
+I<J9onnFeEMJibZI2Q:d2n1
+S1
+R0
+R4
+R5
+R6
+!i122 1
+L0 3 0
+R12
+R7
+r1
+!s85 0
+31
+R8
+R13
+R9
+!i113 0
+R10
+R11
+Yif_axil_dr
+R1
+R2
+!i10b 1
+!s100 ogTHnj6CmgKT>Ph2c4H?U1
+R3
+I]_V2LUofdIJHJ_@3l<UZf0
+S1
+R0
+R4
+R5
+R6
+!i122 1
+L0 117 0
+R12
+R7
+r1
+!s85 0
+31
+R8
+R13
+R9
+!i113 0
+R10
+R11
+Yif_axil_dw
+R1
+R2
+!i10b 1
+!s100 ;IV7jRXOTn5EFU;37<CIR0
+R3
+IP:2cBze89L0QMk?2Kz`Xc3
+S1
+R0
+R4
+R5
+R6
+!i122 1
+L0 79 0
+R12
+R7
+r1
+!s85 0
+31
+R8
+R13
+R9
+!i113 0
+R10
+R11
+Yif_axil_wb
+R1
+R2
+!i10b 1
+!s100 Laz80G_IPg>19i7h1VH;73
+R3
+IOP>5NSg]A=GG>DD>g]gKL0
+S1
+R0
+R4
+R5
+R6
+!i122 1
+L0 157 0
+R12
+R7
+r1
+!s85 0
+31
+R8
+R13
+R9
+!i113 0
+R10
+R11
