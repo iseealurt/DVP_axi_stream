@@ -9,7 +9,7 @@ interface if_axil_aw#(
     logic awvalid;
     logic rst;
     logic [AWIDTH-1:0] awaddr;
-    logic [1:0] axif_awport;
+    logic [2:0] axif_awport;
     
     clocking master_cb @(posedge clk);
         input awready;
@@ -47,7 +47,7 @@ interface if_axil_ar#(
     logic arvalid;
     logic rst;
     logic [AWIDTH-1:0] araddr;
-    logic [1:0] axif_arport;
+    logic [2:0] axif_arport;
     
     clocking master_cb @(posedge clk);
         input arready;

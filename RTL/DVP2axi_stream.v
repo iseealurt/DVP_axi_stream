@@ -296,7 +296,7 @@ module DVP2axi_stream #(
     // =====================================================================
     function [AXI_LITE_DWIDTH-1:0] apply_wstrb;
         input [AXI_LITE_DWIDTH-1:0] old;
-        input [AXI_LITE_DWIDTH-1:0] new;
+        input [AXI_LITE_DWIDTH-1:0] new_val;
         input [AXI_LITE_STRB_WIDTH-1:0] strb;
         reg [AXI_LITE_DWIDTH-1:0] tmp;
         integer i;
@@ -304,7 +304,7 @@ module DVP2axi_stream #(
             tmp = old;
             for (i = 0; i < AXI_LITE_STRB_WIDTH; i = i + 1) begin
                 if (strb[i]) begin
-                    tmp[i*8 +: 8] = new[i*8 +: 8];
+                    tmp[i*8 +: 8] = new_val[i*8 +: 8];
                 end
             end
             apply_wstrb = tmp;
