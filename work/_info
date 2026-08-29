@@ -7,159 +7,159 @@ z2
 !i10e 25
 !i10f 100
 cModel Technology
-Z0 dE:/SV_prj/DVP_axi_stream
+dE:/SV_prj/DVP_axi_stream
 Xaxil_test_pkg
 !s115 if_axil_wb
 !s115 if_axil_dr
 !s115 if_axil_dw
 !s115 if_axil_ar
 !s115 if_axil_aw
-Z1 DXx6 sv_std 3 std 0 22 9oUSJO;AeEaW`l:M@^WG92
-Z2 !s110 1787803180
+Z0 DXx6 sv_std 3 std 0 22 9oUSJO;AeEaW`l:M@^WG92
+Z1 !s110 1788006664
 !i10b 1
-!s100 :gBdS_8cK1>P>WmjbW2Sm1
-Z3 !s11b Dg1SIo80bB@j0V0VzS_@n1
-IgzX1gX]lY7@bl3XAX8UUZ0
+!s100 ka^6h4kGTZzZz60VXS8Wj1
+Z2 !s11b Dg1SIo80bB@j0V0VzS_@n1
+Ie4[SGbf@?zN0^Ob;nLe720
 S1
-R0
-Z4 w1787803178
+Z3 dE:/SV_PRj/DVP_axi_stream
+Z4 w1787835894
 Z5 8bench/AXI4-lite.sv
 Z6 Fbench/AXI4-lite.sv
-!i122 6
+!i122 7
 L0 195 0
-VgzX1gX]lY7@bl3XAX8UUZ0
+Ve4[SGbf@?zN0^Ob;nLe720
 Z7 OL;L;2020.4;71
 r1
 !s85 0
 31
-Z8 !s108 1787803180.000000
-!s107 bench/AXI4-lite.sv|
-Z9 !s90 bench/AXI4-lite.sv|
+Z8 !s108 1788006664.000000
+Z9 !s107 bench/AXI4-lite.sv|
+Z10 !s90 bench/AXI4-lite.sv|
 !i113 0
-Z10 o-L mtiAvm -L mtiRnm -L mtiOvm -L mtiUvm -L mtiUPF -L infact
-Z11 tCvgOpt 0
+Z11 o-L mtiAvm -L mtiRnm -L mtiOvm -L mtiUvm -L mtiUPF -L infact
+Z12 tCvgOpt 0
 Yif_axil_ar
+R0
 R1
-R2
 !i10b 1
 !s100 ERUB?AhH?F6[6c>G1mz`O2
-R3
+R2
 I=2JT93<YFW_CaQ@LXA<3I1
 S1
-R0
+R3
 R4
 R5
 R6
-!i122 6
+!i122 7
 L0 41 0
-Z12 VDg1SIo80bB@j0V0VzS_@n1
+Z13 VDg1SIo80bB@j0V0VzS_@n1
 R7
 r1
 !s85 0
 31
 R8
-Z13 !s107 bench/AXI4-lite.sv|
 R9
-!i113 0
 R10
+!i113 0
 R11
+R12
 Yif_axil_aw
+R0
 R1
-R2
 !i10b 1
 !s100 nifV[d[1Vb`NaFQCMe^8W0
-R3
+R2
 IT^Z0Dm2YX?WGWzAe;6cz<0
 S1
-R0
+R3
 R4
 R5
 R6
-!i122 6
+!i122 7
 L0 3 0
-R12
+R13
 R7
 r1
 !s85 0
 31
 R8
-R13
 R9
-!i113 0
 R10
+!i113 0
 R11
+R12
 Yif_axil_dr
+R0
 R1
-R2
 !i10b 1
 !s100 RlFISOIWID6b[clbIiSf>3
-R3
+R2
 ISU?YoE>DOc0ITKLO^9ZBW2
 S1
-R0
+R3
 R4
 R5
 R6
-!i122 6
+!i122 7
 L0 117 0
-R12
+R13
 R7
 r1
 !s85 0
 31
 R8
-R13
 R9
-!i113 0
 R10
+!i113 0
 R11
+R12
 Yif_axil_dw
+R0
 R1
-R2
 !i10b 1
 !s100 Yj1<lE:^PS5fVzgdQDIQV2
-R3
+R2
 IRYeT2a5MXTZod7e3a^Bm^2
 S1
-R0
+R3
 R4
 R5
 R6
-!i122 6
+!i122 7
 L0 79 0
-R12
+R13
 R7
 r1
 !s85 0
 31
 R8
-R13
 R9
-!i113 0
 R10
+!i113 0
 R11
+R12
 Yif_axil_wb
+R0
 R1
-R2
 !i10b 1
 !s100 =TcPB?SomS1CeJ7nUhjJW3
-R3
+R2
 IJB>6CbXcOkJR?<6D5Ul1c1
 S1
-R0
+R3
 R4
 R5
 R6
-!i122 6
+!i122 7
 L0 157 0
-R12
+R13
 R7
 r1
 !s85 0
 31
 R8
-R13
 R9
-!i113 0
 R10
+!i113 0
 R11
+R12

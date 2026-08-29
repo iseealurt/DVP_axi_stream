@@ -28,6 +28,7 @@
         "preprocessorColumnZero": false
     },
     "systemverilog.topLevelFiles": [
-        "RTL/DVP2axi_stream.v"
-    ]
+        "bench/tb_DVP2axi_stream_v_1_0.sv"
+    ],
+    "systemverilog.topLevelEntities": []
 }
