@@ -1,197 +1,5 @@
 `timescale 1ns/1ps
-// ------------------------------- Definiiton of interface -------------------------------
-interface if_axil_aw#(
-    parameter AWIDTH = 32
-)(
-    input bit clk
-);
-    logic awready;
-    logic awvalid;
-    logic rst;
-    logic [AWIDTH-1:0] awaddr;
-    logic [2:0] axif_awport;
-    
-    clocking master_cb @(posedge clk);
-        input awready;
-        output awvalid,awaddr,axif_awport;
-    endclocking 
-
-    clocking slave_cb @(posedge clk);
-        output awready;
-        input awvalid,awaddr,axif_awport;
-    endclocking 
-
-    clocking monitor_cb @(posedge clk);
-        input awready,awvalid,awaddr,axif_awport;
-    endclocking 
-    modport MASTER(
-        clocking master_cb ,
-        input rst 
-    );
-    modport SLAVE(
-        clocking slave_cb ,
-        input rst 
-    );
-    modport MONITOR(
-        clocking monitor_cb,
-        input rst 
-    );
-endinterface
-
-interface if_axil_ar#(
-    parameter AWIDTH = 32
-)(
-    input bit clk
-);
-    logic arready;
-    logic arvalid;
-    logic rst;
-    logic [AWIDTH-1:0] araddr;
-    logic [2:0] axif_arport;
-    
-    clocking master_cb @(posedge clk);
-        input arready;
-        output arvalid,araddr,axif_arport;
-    endclocking 
-
-    clocking slave_cb @(posedge clk);
-        output arready;
-        input arvalid,araddr,axif_arport;
-    endclocking 
-
-    clocking monitor_cb @(posedge clk);
-        input arready,arvalid,araddr,axif_arport;
-    endclocking 
-    modport MASTER(
-        clocking master_cb ,
-        input rst 
-    );
-    modport SLAVE(
-        clocking slave_cb ,
-        input rst 
-    );
-    modport MONITOR(
-        clocking monitor_cb ,
-        input rst 
-    );
-endinterface
-
-interface if_axil_dw#(
-    parameter DWIDTH = 128
-)(
-    input bit clk
-);
-    logic wready;
-    logic wvalid;
-    logic rst;
-    logic [DWIDTH-1:0] wdata;
-    logic [DWIDTH/8-1:0] wstrb;
-    
-    clocking master_cb @(posedge clk);
-        input wready;
-        output wvalid,wdata,wstrb;
-    endclocking 
-
-    clocking slave_cb @(posedge clk);
-        output wready;
-        input wvalid,wdata,wstrb;
-    endclocking 
-
-    clocking monitor_cb @(posedge clk);
-        input wready,wvalid,wdata,wstrb;
-    endclocking 
-    modport MASTER(
-        clocking master_cb ,
-        input rst 
-    );
-    modport SLAVE(
-        clocking slave_cb ,
-        input rst 
-    );
-    modport MONITOR(
-        clocking monitor_cb ,
-        input rst 
-    );
-endinterface
-
-interface if_axil_dr#(
-    parameter DWIDTH = 128,
-    parameter IDWIDTH = 4
-)(
-    input bit clk
-);
-    logic rvalid;
-    logic rst;
-    logic [DWIDTH-1:0] rdata;
-    logic [1:0] rresp;
-    logic [IDWIDTH-1:0] axif_rid;
-    logic rready;
-    
-    clocking master_cb @(posedge clk);
-        input rvalid,rdata,rresp,axif_rid;
-        output rready;
-    endclocking 
-
-    clocking slave_cb @(posedge clk);
-        output rvalid,rdata,rresp,axif_rid;
-        input rready;
-    endclocking 
-
-    clocking monitor_cb @(posedge clk);
-        input rvalid,rdata,rresp,axif_rid,rready;
-    endclocking 
-    modport MASTER(
-        clocking master_cb ,
-        input rst 
-    );
-    modport SLAVE(
-        clocking slave_cb ,
-        input rst 
-    );
-    modport MONITOR(
-        clocking monitor_cb ,
-        input rst 
-    );
-endinterface
-
-interface if_axil_wb#(
-    parameter IDWIDTH = 4
-)(
-    input bit clk
-);
-    logic bvalid;
-    logic rst;
-    logic [1:0] bresp;
-    logic [IDWIDTH-1:0] axif_bid;
-    logic bready;
-    
-    clocking master_cb @(posedge clk);
-        input bvalid,bresp,axif_bid;
-        output bready;
-    endclocking 
-
-    clocking slave_cb @(posedge clk);
-        output bvalid,bresp,axif_bid;
-        input bready;
-    endclocking 
-
-    clocking monitor_cb @(posedge clk);
-        input bvalid,bresp,axif_bid,bready;
-    endclocking 
-    modport MASTER(
-        clocking master_cb ,
-        input rst 
-    );
-    modport SLAVE(
-        clocking slave_cb ,
-        input rst 
-    );
-    modport MONITOR(
-        clocking monitor_cb ,
-        input rst 
-    );
-endinterface
-
+`include "if_axil.sv"
 package axil_test_pkg;
   // ------------------------------- Definiiton of common types -------------------------------
   typedef enum logic [1:0] {
@@ -259,6 +67,14 @@ package axil_test_pkg;
     function mnt_axil_wb_new(virtual if_axil_wb #(ID_W).MONITOR vif_mnt_axil_wb);
         this.vif_mnt_axil_wb = vif_mnt_axil_wb;
     endfunction
+    task receive(txn_result_e drv_txn_result);
+    endtask
+    task run();
+      txn_result_e drv_txn_result;
+      forever begin
+        receive(drv_txn_result);
+      end
+    endtask
   endclass
 
   class axil_slv_param#(
@@ -389,14 +205,14 @@ package axil_test_pkg;
         vif_slv_axil_aw.rst = 1'b1;
         vif_slv_axil_dw.rst = 1'b1;
         vif_slv_axil_wb.rst = 1'b1;
-        repeat(10) @(vif_slv_axil_aw.cb);
+        repeat(10) @(vif_slv_axil_aw.slave_cb);
         vif_slv_axil_aw.rst = 1'b0;
         vif_slv_axil_dw.rst = 1'b0;
         vif_slv_axil_wb.rst = 1'b0;
       end
       fork : slv_write_respond_fork
         begin : aw_rcv
-          repeat (p.aw_dly) @(vif_slv_axil_aw.cb);
+          repeat (p.aw_dly) @(vif_slv_axil_aw.slave_cb);
           vif_slv_axil_aw.awready <= 1'b1; //从机可接收地址
           wait (vif_slv_axil_aw.awvalid && vif_slv_axil_aw.awready) begin
           rcv_addr = vif_slv_axil_aw.awaddr;
@@ -406,7 +222,7 @@ package axil_test_pkg;
           wait (txn_done); //事务结束前不退出本分支
         end
         begin : dw_rcv
-          repeat (p.w_dly) @(vif_slv_axil_dw.cb);
+          repeat (p.w_dly) @(vif_slv_axil_dw.slave_cb);
           vif_slv_axil_dw.wready <= 1'b1; //从机可接收数据
           wait (vif_slv_axil_dw.wvalid && vif_slv_axil_dw.wready) begin
           rcv_data = vif_slv_axil_dw.wdata;
@@ -417,7 +233,7 @@ package axil_test_pkg;
         end
         begin : wb_send
           wait (aw_done && dw_done); //AW和W都接收完成后才回BVALID
-          @(vif_slv_axil_wb.cb);
+          @(vif_slv_axil_wb.slave_cb);
           vif_slv_axil_wb.bvalid <= 1'b1;
           vif_slv_axil_wb.bresp <= p.resp;
           wait (vif_slv_axil_wb.bvalid && vif_slv_axil_wb.bready) begin
@@ -426,7 +242,7 @@ package axil_test_pkg;
           txn_done = 1'b1; //B握手完成，事务结束
         end
         begin : timeout_monitor
-          repeat(p.max_timeout_cycle) @(vif_slv_axil_aw.cb);
+          repeat(p.max_timeout_cycle) @(vif_slv_axil_aw.slave_cb);
           if (!txn_done) begin
             err_msg = $sformatf("@%0t [TIMEOUT] slave write task %0d timeout for %0d cycles",$time,task_id,p.max_timeout_cycle);
             result.txn_reason = err_msg;
@@ -473,13 +289,13 @@ package axil_test_pkg;
       if(p.reset_assert) begin
         vif_slv_axil_ar.rst = 1'b1;
         vif_slv_axil_dr.rst = 1'b1;
-        repeat(10) @(vif_slv_axil_ar.cb);
+        repeat(10) @(vif_slv_axil_ar.slave_cb);
         vif_slv_axil_ar.rst = 1'b0;
         vif_slv_axil_dr.rst = 1'b0;
       end
       fork : slv_read_respond_fork
         begin : ar_rcv
-          repeat (p.ar_dly) @(vif_slv_axil_ar.cb);
+          repeat (p.ar_dly) @(vif_slv_axil_ar.slave_cb);
           vif_slv_axil_ar.arready <= 1'b1; //从机可接收地址
           wait (vif_slv_axil_ar.arvalid && vif_slv_axil_ar.arready) begin
           rcv_addr = vif_slv_axil_ar.araddr;
@@ -490,7 +306,7 @@ package axil_test_pkg;
         end
         begin : r_send
           wait (ar_done); //AR握手完成后才回RVALID
-          repeat (p.r_dly) @(vif_slv_axil_dr.cb);
+          repeat (p.r_dly) @(vif_slv_axil_dr.slave_cb);
           vif_slv_axil_dr.rvalid <= 1'b1;
           vif_slv_axil_dr.rdata <= p.rdata;
           vif_slv_axil_dr.rresp <= p.resp;
@@ -500,7 +316,7 @@ package axil_test_pkg;
           txn_done = 1'b1; //R握手完成，事务结束
         end
         begin : timeout_monitor
-          repeat(p.max_timeout_cycle) @(vif_slv_axil_ar.cb);
+          repeat(p.max_timeout_cycle) @(vif_slv_axil_ar.slave_cb);
           if (!txn_done) begin
             err_msg = $sformatf("@%0t [TIMEOUT] slave read task %0d timeout for %0d cycles",$time,task_id,p.max_timeout_cycle);
             result.txn_reason = err_msg;
@@ -655,21 +471,21 @@ package axil_test_pkg;
           vif_mst_axil_aw.rst = 1'b1;
           vif_mst_axil_dw.rst = 1'b1;
           vif_mst_axil_wb.rst = 1'b1;
-          repeat(10) @(vif_mst_axil_aw.cb);
+          repeat(10) @(vif_mst_axil_aw.master_cb);
           vif_mst_axil_aw.rst = 1'b0;
           vif_mst_axil_dw.rst = 1'b0;
           vif_mst_axil_wb.rst = 1'b0;
         end
         fork : mst_write_reg_fork
           begin : aw_test
-            @(vif_mst_axil_aw.cb);
+            @(vif_mst_axil_aw.master_cb);
             vif_mst_axil_aw.awvalid <= 1'b1;
             vif_mst_axil_aw.awaddr <= p.addr;
             wait (vif_mst_axil_aw.awvalid && vif_mst_axil_aw.awready) vif_mst_axil_aw.awvalid <= 1'b0;            
             wait (txn_done); //事务结束前不退出本分支
           end
           begin : dw_test
-            repeat (p.dw_dly) @(vif_mst_axil_dw.cb);
+            repeat (p.dw_dly) @(vif_mst_axil_dw.master_cb);
             vif_mst_axil_dw.wvalid <= 1'b1;
             vif_mst_axil_dw.wdata <= p.data;
             vif_mst_axil_dw.wstrb <= p.wstrb;
@@ -677,7 +493,7 @@ package axil_test_pkg;
             wait (txn_done); //事务结束前不退出本分支
           end
           begin : wb_test
-            @(vif_mst_axil_wb.cb);
+            @(vif_mst_axil_wb.master_cb);
             vif_mst_axil_wb.bready <= 1'b1; //事务一开始就使能，随时可收响应
             wait (vif_mst_axil_wb.bvalid && vif_mst_axil_wb.bready) begin
             wb_result = vif_mst_axil_wb.bresp;
@@ -686,7 +502,7 @@ package axil_test_pkg;
             txn_done = 1'b1; //B握手完成，事务结束
           end
           begin : timeout_monitor
-            repeat(p.max_timeout_cycle) @(vif_mst_axil_aw.cb);
+            repeat(p.max_timeout_cycle) @(vif_mst_axil_aw.master_cb);
             if (!txn_done) begin
               err_msg = $sformatf("@%0t [TIMEOUT] task %0d timeout for %0d cycles",$time,task_id,p.max_timeout_cycle);
               result.txn_reason = err_msg;
@@ -733,20 +549,20 @@ package axil_test_pkg;
         if(p.reset_assert) begin
           vif_mst_axil_ar.rst = 1'b1;
           vif_mst_axil_dr.rst = 1'b1;
-          repeat(10) @(vif_mst_axil_ar.cb);
+          repeat(10) @(vif_mst_axil_ar.master_cb);
           vif_mst_axil_ar.rst = 1'b0;
           vif_mst_axil_dr.rst = 1'b0;
         end
         fork : mst_read_reg_fork
           begin : ar_test
-            @(vif_mst_axil_ar.cb);
+            @(vif_mst_axil_ar.master_cb);
             vif_mst_axil_ar.arvalid <= 1'b1;
             vif_mst_axil_ar.araddr <= p.addr;
             wait (vif_mst_axil_ar.arvalid && vif_mst_axil_ar.arready) vif_mst_axil_ar.arvalid <= 1'b0;
             wait (txn_done); //事务结束前不退出本分支
           end
           begin : r_test
-            repeat (p.dr_dly) @(vif_mst_axil_dr.cb);
+            repeat (p.dr_dly) @(vif_mst_axil_dr.master_cb);
             vif_mst_axil_dr.rready <= 1'b1; //事务一开始就使能，随时可收数据
             wait (vif_mst_axil_dr.rvalid && vif_mst_axil_dr.rready) begin
             rdata = vif_mst_axil_dr.rdata;
@@ -756,7 +572,7 @@ package axil_test_pkg;
             txn_done = 1'b1; //R握手完成，事务结束
           end
           begin : timeout_monitor
-            repeat(p.max_timeout_cycle) @(vif_mst_axil_ar.cb);
+            repeat(p.max_timeout_cycle) @(vif_mst_axil_ar.master_cb);
             if (!txn_done) begin
               err_msg = $sformatf("@%0t [TIMEOUT] task %0d timeout for %0d cycles",$time,task_id,p.max_timeout_cycle);
               result.txn_reason = err_msg;

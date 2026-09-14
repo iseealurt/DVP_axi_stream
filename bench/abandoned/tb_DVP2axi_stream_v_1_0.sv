@@ -1,7 +1,9 @@
 `timescale 1ns/1ps
-`include "AXI4-lite.sv"
+
 
 module tb_DVP2axi_stream_v_1_0;
+  // ------------------------------ Localparams ------------------------------
+  localparam PERIOD_ACLK = 10; // 100MHz
   // ------------------------------ Parameters ------------------------------
   parameter DVP_DWIDTH = 8 ;
   parameter PIX_WIDTH = 16 ;
@@ -18,10 +20,18 @@ module tb_DVP2axi_stream_v_1_0;
 
   // ------------------------------ Imported packages ------------------------------
   import axil_test_pkg::*;
+  
   // ------------------------------ Signals ------------------------------
   // AXI-Lite clock / reset
   logic aclk;
   logic aresetn;
+
+  // ------------------------------ Packed Interfaces ------------------------------
+  if_axil_aw#(AXI_LITE_AWIDTH) if_s_axil_aw (aclk);
+  if_axil_dw#(AXI_LITE_DWIDTH) if_s_axil_dw (aclk);
+  if_axil_ar#(AXI_LITE_AWIDTH) if_s_axil_ar (aclk);
+  if_axil_dr#(AXI_LITE_DWIDTH) if_s_axil_dr (aclk);
+  if_axil_wb#(AXI_ID_WIDTH) if_s_axil_wb (aclk);
 
   // ------------------------------ DUT ------------------------------
   DVP2axi_stream # (
@@ -72,11 +82,32 @@ module tb_DVP2axi_stream_v_1_0;
     .axis_tkeep(),
     .axis_tlast()
   );
-  // ------------------------------ Packed Interfaces ------------------------------
-  if_axil_aw#(AXI_LITE_AWIDTH) if_s_axil_aw (aclk);
-  if_axil_dw#(AXI_LITE_DWIDTH) if_s_axil_dw (aclk);
-  if_axil_ar#(AXI_LITE_AWIDTH) if_s_axil_ar (aclk);
-  if_axil_dr#(AXI_LITE_DWIDTH) if_s_axil_dr (aclk);
-  if_axil_wb#(AXI_ID_WIDTH) if_s_axil_wb (aclk);
+
+  
+  // ------------------------------ Clock Signal ------------------------------
+  initial begin
+    aclk = 0;
+    forever #PERIOD_ACLK aclk = ~aclk;
+  end
+
+  // ------------------------------ AXI resetn ------------------------------
+  task global_reset(
+    input bit rst_asrt ,
+    input int duration ,
+    output bit success 
+  );
+    begin
+      aresetn = 1'b1;
+      success = 1'b0;
+      if(rst_asrt) begin
+        $display("@ %0t ,[RESET] Reset asserted",$time);
+        aresetn = 1'b0;
+        repeat (duration) @(posedge aclk);
+        aresetn = 1'b1;
+        success = 1'b1;
+      end
+    end
+  endtask
+
   
   endmodule
