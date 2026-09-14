@@ -97,6 +97,7 @@ interface mnt_if_axil#(
   logic rvalid , rready ;
   logic [DWIDTH-1:0] rdata ;
   logic [1:0] rresp ;
+  
   clocking cb @(posedge aclk or negedge arstn);
   input  awvalid , awaddr , awport , wvalid , wdata , wstrb , bready , arvalid , araddr , arport , rready;
   output awready , wready , bvalid , bresp , arready , rvalid , rdata , rresp;
