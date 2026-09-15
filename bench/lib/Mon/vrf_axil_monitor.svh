@@ -88,7 +88,7 @@ class vrf_axil_monitor #(
         o = new("mon_rd");
         o.txn_dir       = AXIL_RD;
         o.obs_addr      = mnt_vif.cb.araddr;
-        o.obs_strb      = '1;
+        o.obs_strb      = '1;        // 读事务无字节选通语义，统一记为全选通
         o.exp_rdata     = model.predict_read(mnt_vif.cb.araddr);
         o.exp_resp      = model.predict_resp(AXIL_RD, mnt_vif.cb.araddr);
         o.txn_result    = PASS;

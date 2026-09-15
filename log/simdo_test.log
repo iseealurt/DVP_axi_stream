@@ -14,7 +14,7 @@
 # -mfcu -sv -work work +define+VRF_AXIL_BIND_REF -f bench/scripts/filelist.f
 # [VRF_AXIL] compile : tb_vrf_axil_demo  (+define+VRF_AXIL_BIND_REF)
 # Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
-# Start time: 20:25:49 on Sep 15,2026
+# Start time: 20:43:47 on Sep 15,2026
 # vlog -mfcu -sv -work work "+define+VRF_AXIL_BIND_REF" -f bench/scripts/filelist.f 
 # -- Compiling module DVP2axi_stream
 # -- Compiling interface vrf_axil_mst_if
@@ -24,6 +24,7 @@
 # -- Compiling module vrf_axil_slv_ref
 # -- Importing package vrf_axil_pkg
 # -- Compiling module vrf_axil_chk
+# ** Warning: bench/lib/Chk/vrf_axil_chk.sv(268): (vlog-13233) Design unit "DVP2axi_stream_v_unit" already exists and will be overwritten. Design unit compiled with different set of options.
 # -- Compiling package DVP2axi_stream_v_unit
 # -- Compiling module vrf_axil_harness_ref
 # -- Importing package vrf_axil_pkg
@@ -35,16 +36,16 @@
 # 	tb_vrf_axil_demo
 # 	tb_dvp2ax_stream
 # ** Warning: (vlog-2650) 'bind' found in compilation unit scope. Please use -cuname to ensure that 'bind' gets elaborated.
-# End time: 20:25:50 on Sep 15,2026, Elapsed time: 0:00:01
-# Errors: 0, Warnings: 1
+# End time: 20:43:47 on Sep 15,2026, Elapsed time: 0:00:00
+# Errors: 0, Warnings: 2
 # -c -l log/tb_vrf_axil_demo.log work.tb_vrf_axil_demo
 # -c -l log/tb_vrf_axil_demo.log work.tb_vrf_axil_demo +log_dir=log
 # run -all; quit -f
 # -do {run -all; quit -f} -c -l log/tb_vrf_axil_demo.log work.tb_vrf_axil_demo +log_dir=log
 # [VRF_AXIL] simulate : tb_vrf_axil_demo  seed=0
 # vsim -do "run -all; quit -f" -c -l log/tb_vrf_axil_demo.log work.tb_vrf_axil_demo "+log_dir=log" 
-# Start time: 20:25:50 on Sep 15,2026
-# ** Note: (vsim-8009) Loading existing optimized design _opt
+# Start time: 20:43:47 on Sep 15,2026
+# ** Note: (vsim-3813) Design is being optimized due to module recompilation...
 # //  ModelSim SE-64 2020.4 Oct 13 2020
 # //
 # //  Copyright 1991-2020 Mentor Graphics Corporation
@@ -103,6 +104,12 @@
 #  VRF_AXI4L 库自测用例 : tb_vrf_axil_demo
 #  随机种子 : 318257127  (可用 +seed=318257127 复现)
 # ================================================================
+# ** Warning: (vsim-8549) After dropping the illegal, ignore or invalid values, the values list associated with scalar bin 'none' in Coverpoint 'cp_strb' of Covergroup instance 'vrf_axil_cg' has converged to empty list. The bin will be taken out of coverage calculation.
+#    Time: 75 ns  Iteration: 1  Instance: /tb_vrf_axil_demo
+# ** Warning: (vsim-8556) On evaluating the expression 'binsof(cp_resp) intersect{ value_list }' inside the select expression of Bin 'ig_resp' of Cross 'cx_dir_resp' in Covergroup instance 'vrf_axil_cg', no matching bins were found. The binsof expression will result in an empty set.
+#    Time: 75 ns  Iteration: 1  Instance: /tb_vrf_axil_demo
+# ** Warning: (vsim-8560) On evaluating the select expression of Cross bin 'cx_dir_resp.ig_resp' in Covergroup instance 'vrf_axil_cg', the bin is found to be empty since no cross products are selected.
+#    Time: 75 ns  Iteration: 1  Instance: /tb_vrf_axil_demo
 # [75000][VRF_AXIL] 环境连接完成：DUT=REF_SLAVE，寄存器数=7
 # ================= 信号连通性自检报告（仿真报告头） =================
 # 自检信号数: 21    连接错误: 0    X/Z或未驱动: 0    恒定: 4
@@ -143,8 +150,8 @@
 # 发起事务数   : 285
 # 参与比对检查 : 285    通过: 285    失败: 0    跳过: 0
 # 断言检查次数 : 4847    失败: 0
-# vrf_axil_cg 功能覆盖率 = 70.63%  (采样 285 次)
-# 整体覆盖率   : 70.63%
+# vrf_axil_cg 功能覆盖率 = 100.00%  (采样 285 次)
+# 整体覆盖率   : 100.00%
 # SIMULATION PASSED: 检查 285 项, 失败 0 项, 断言失败 0 项
 # ====================================================
 # ================================================================
@@ -154,5 +161,5 @@
 # SIMULATION PASSED
 # ** Note: $finish    : bench/tb/tb_vrf_axil_demo.sv(238)
 #    Time: 11735 ns  Iteration: 2  Instance: /tb_vrf_axil_demo
-# End time: 20:25:53 on Sep 15,2026, Elapsed time: 0:00:03
-# Errors: 0, Warnings: 11
+# End time: 20:43:51 on Sep 15,2026, Elapsed time: 0:00:04
+# Errors: 0, Warnings: 14

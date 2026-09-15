@@ -38,8 +38,8 @@ covergroup cg_axil (
     bins r_other   = default;
   }
 
-  // 字节选通组合
-  cp_strb : coverpoint strb {
+  // 字节选通：仅写事务具备字节使能语义，读事务不采样该覆盖点
+  cp_strb : coverpoint strb iff (dir == 2'd0) {
     bins none    = {4'b0000};
     bins b0      = {4'b0001};
     bins b1      = {4'b0010};
@@ -48,18 +48,24 @@ covergroup cg_axil (
     bins partial = {4'b0011, 4'b0101, 4'b0110, 4'b1001, 4'b1010,
                     4'b1100, 4'b0111, 4'b1011, 4'b1101, 4'b1110};
     bins full    = {4'b1111};
+    // 结构非法：AXI 写事务必须至少选通一个字节，写激励约束亦禁止全零选通
+    ignore_bins ig_none = {4'b0000};
   }
 
   // 响应类型
   cp_resp : coverpoint resp {
-    bins okay   = {2'd0};
-    bins exokay = {2'd1};
-    bins slverr = {2'd2};
-    bins decerr = {2'd3};
+    bins okay = {2'd0};
+    // AXI4-Lite 不使用 EXOKAY；当前被测从端不产生错误响应，两种情形均不可达
+    ignore_bins ig_exokay = {2'd1};
+    ignore_bins ig_slverr = {2'd2};
+    ignore_bins ig_decerr = {2'd3};
   }
 
-  // 主机 ID
-  cp_id : coverpoint id;
+  // 主机 ID：当前被测从端 bid/rid 恒为 0，仅 0 号 ID 可达
+  cp_id : coverpoint id {
+    bins id0 = {4'd0};
+    ignore_bins ig_other_id = {[4'd1 : 4'd15]};
+  }
 
   // 只读访问 / 未映射访问
   cp_ro : coverpoint ro_acc {
@@ -73,8 +79,16 @@ covergroup cg_axil (
 
   // 交叉覆盖
   cx_dir_addr : cross cp_dir, cp_addr;
-  cx_dir_strb : cross cp_dir, cp_strb;
-  cx_dir_resp : cross cp_dir, cp_resp;
+
+  // 方向×字节选通：读方向无字节选通语义，整体忽略读方向列
+  cx_dir_strb : cross cp_dir, cp_strb {
+    ignore_bins ig_rd = binsof(cp_dir) intersect {2'd1};
+  }
+
+  // 方向×响应：已排除的不可达响应类型同步从交叉中排除
+  cx_dir_resp : cross cp_dir, cp_resp {
+    ignore_bins ig_resp = binsof(cp_resp) intersect {2'd1, 2'd2, 2'd3};
+  }
 endgroup
 
 class vrf_axil_cov #(
@@ -114,7 +128,7 @@ class vrf_axil_cov #(
     if (!cov_on) return;
     s_dir      = t.txn_dir;
     s_addr     = t.obs_addr;
-    s_strb     = (t.txn_dir == AXIL_WR) ? t.obs_strb : t.txn_strb;
+    s_strb     = t.obs_strb;      // 读事务由监视器统一记为全选通
     s_resp     = t.obs_resp;
     s_id       = t.obs_id;
     s_ro_acc   = is_ro;
@@ -130,8 +144,18 @@ class vrf_axil_cov #(
 
   function string report_string();
     if (!cov_on) return "覆盖率收集未启用";
-    return $sformatf("vrf_axil_cg 功能覆盖率 = %0.2f%%  (采样 %0d 次)",
-                     cg_inst.get_coverage(), n_sample);
+    return $sformatf("vrf_axil_cg 功能覆盖率 = %0.2f%%  (采样 %0d 次)", cg_inst.get_coverage(), n_sample);
+  endfunction
+
+  // 覆盖率口径说明：以下 bin 以 ignore_bins 排除，不计入覆盖率分母
+  function string report_note();
+    return {
+      "  口径说明：已排除结构非法/当前 DUT 不可达的 bin——\n",
+      "    EXOKAY（AXI4-Lite 不使用）、SLVERR/DECERR（被测从端不产生错误响应）、\n",
+      "    非 0 主机 ID（被测从端 bid/rid 恒为 0）、写事务全零选通（结构非法）、\n",
+      "    读方向×字节选通（读事务无字节选通语义）。\n",
+      "    若后续 DUT 支持错误响应或多 ID，须同步移除对应 ignore_bins。\n"
+    };
   endfunction
 endclass
 

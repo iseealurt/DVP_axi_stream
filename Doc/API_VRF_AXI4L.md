@@ -284,8 +284,25 @@ vrf_axil_slv_ref #(AW=32, DW=32, ID=4, RDY_DLY_MIN=0, RDY_DLY_MAX=2)
 | `sample(txn, is_ro, is_unmapped)` | 采样一笔已完成比对的事务 |
 | `get_coverage()` | 返回 covergroup 覆盖率 |
 | `report_string()` | 返回报告文本（覆盖率 + 采样次数） |
+| `report_note()` | 返回覆盖率口径说明（逐条列出被 ignore_bins 排除的 bin 及原因） |
 
-覆盖点：`cp_dir`、`cp_addr`（5 个地址区间）、`cp_strb`（7 类选通组合）、`cp_resp`、`cp_id`、`cp_ro`、`cp_unmapped`；交叉：`cx_dir_addr`、`cx_dir_strb`、`cx_dir_resp`。
+覆盖点：`cp_dir`、`cp_addr`（5 个地址区间）、`cp_strb`（写方向 6 类选通组合）、`cp_resp`、`cp_id`、`cp_ro`、`cp_unmapped`；交叉：`cx_dir_addr`、`cx_dir_strb`、`cx_dir_resp`。
+
+### 覆盖率口径（重要）
+
+功能覆盖率只应衡量「DUT 能够表现出的行为」，因此以下 bin 以 `ignore_bins` 排除，不计入分母：
+
+| 排除项 | 原因 |
+|---|---|
+| `cp_resp` 的 `EXOKAY` | AXI4-Lite 协议不使用 EXOKAY |
+| `cp_resp` 的 `SLVERR` / `DECERR` | 当前被测从端 `bresp/rresp` 固定返回 OKAY，不产生错误响应 |
+| `cp_id` 的 `[1:15]` | 当前被测从端 `bid/rid` 恒为 0 |
+| `cp_strb` 的 `4'b0000` | 结构非法：AXI 写事务必须至少选通一个字节，且写激励约束已禁止全零选通 |
+| `cx_dir_strb` 的读方向列 | 读事务无字节选通语义（`cp_strb` 已用 `coverpoint ... iff (dir == WR)` 限定为写方向） |
+| `cx_dir_resp` 的异常响应列 | 与 `cp_resp` 的排除项保持一致 |
+
+> **接入新 DUT 时须复核**：若新 DUT 会返回 SLVERR/DECERR、或使用非 0 的 `bid/rid`，
+> 必须从 `vrf_axil_cov.svh` 中移除对应的 `ignore_bins`，否则会掩盖真实覆盖漏洞。
 
 UCDB 由脚本 `coverage save -onexit <file>.ucdb` 生成，可用 `vcover report -detail <file>.ucdb` 查看明细。
 

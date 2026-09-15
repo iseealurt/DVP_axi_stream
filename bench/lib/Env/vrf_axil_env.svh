@@ -231,6 +231,7 @@ class vrf_axil_env #(
     $fdisplay(fd, "");
     $fdisplay(fd, "================= 功能覆盖率 =================");
     $fdisplay(fd, "%s", cov.report_string());
+    $fdisplay(fd, "%s", cov.report_note());
     $fdisplay(fd, "整体覆盖率   : %0.2f%%", $get_coverage());
     $fdisplay(fd, "");
     if (sb.fail_q.size() > 0) begin

@@ -2,7 +2,7 @@
 ########## 回归轮次 seed=1 ##########
 [VRF_AXIL] 编译 : tb_dvp2ax_stream  (+define+VRF_AXIL_BIND_DVP2AXI)
 Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
-Start time: 20:21:41 on Sep 15,2026
+Start time: 20:42:22 on Sep 15,2026
 vlog -mfcu -sv -work work "+define+VRF_AXIL_BIND_DVP2AXI" -f bench/scripts/filelist.f 
 -- Compiling module DVP2axi_stream
 -- Compiling interface vrf_axil_mst_if
@@ -12,6 +12,7 @@ vlog -mfcu -sv -work work "+define+VRF_AXIL_BIND_DVP2AXI" -f bench/scripts/filel
 -- Compiling module vrf_axil_slv_ref
 -- Importing package vrf_axil_pkg
 -- Compiling module vrf_axil_chk
+** Warning: bench/lib/Chk/vrf_axil_chk.sv(264): (vlog-13233) Design unit "DVP2axi_stream_v_unit" already exists and will be overwritten. Design unit compiled with different set of options.
 -- Compiling package DVP2axi_stream_v_unit
 -- Compiling module vrf_axil_harness_ref
 -- Importing package vrf_axil_pkg
@@ -23,16 +24,16 @@ Top level modules:
 	tb_vrf_axil_demo
 	tb_dvp2ax_stream
 ** Warning: (vlog-2650) 'bind' found in compilation unit scope. Please use -cuname to ensure that 'bind' gets elaborated.
-End time: 20:21:41 on Sep 15,2026, Elapsed time: 0:00:00
-Errors: 0, Warnings: 1
+End time: 20:42:22 on Sep 15,2026, Elapsed time: 0:00:00
+Errors: 0, Warnings: 2
 [VRF_AXIL] 仿真 : tb_dvp2ax_stream  seed=1
 Reading pref.tcl
 
 # 2020.4
 
 # vsim -c -do "run -all; quit -f" -l log/regression/seed_1/tb_dvp2ax_stream.log work.tb_dvp2ax_stream "+seed=1" "+log_dir=log/regression/seed_1" 
-# Start time: 20:21:44 on Sep 15,2026
-# ** Note: (vsim-8009) Loading existing optimized design _opt
+# Start time: 20:42:24 on Sep 15,2026
+# ** Note: (vsim-3813) Design is being optimized due to module recompilation...
 # //  ModelSim SE-64 2020.4 Oct 13 2020
 # //
 # //  Copyright 1991-2020 Mentor Graphics Corporation
@@ -58,7 +59,7 @@ Reading pref.tcl
 #    Time: 0 ps  Iteration: 0  Region: /vrf_axil_pkg::vrf_axil_bringup #(32, 32, 4) File: bench/lib/Pkg/../Chk/vrf_axil_bringup.svh Line: 124
 # ** Warning: (vsim-8441) Clocking block output mst_vif.cb.rready is not legal in this
 # or another expression.
-#    Time: 0 ps  Iteration: 0  Region: /vrf_axil_pkg::vrf_axil_bringup #(32, 32, 4) File: bench/lib/Pkg/../Chk/vrf_axil_bringup.svh Line: 157
+#    Time: 0 ps  Iteration: 0  Region: /vrf_axil_pkg::vrf_axil_bringup #(32, 32, 4) File: bench/lib/Pkg/../Chk/vrf_axil_bringup.svh Line: 164
 # ** Warning: (vsim-8441) Clocking block output mst_vif.cb.awvalid is not legal in this
 # or another expression.
 #    Time: 0 ps  Iteration: 0  Region: /vrf_axil_pkg::vrf_axil_driver #(32, 32, 4, 4) File: bench/lib/Pkg/../Drv/vrf_axil_driver.svh Line: 113
@@ -92,20 +93,26 @@ Reading pref.tcl
 #  被测对象 : RTL/DVP2axi_stream.v 的 AXI4-Lite 寄存器块
 #  随机种子 : 1  (可用 +seed=1 复现)
 # ================================================================
+# ** Warning: (vsim-8549) After dropping the illegal, ignore or invalid values, the values list associated with scalar bin 'none' in Coverpoint 'cp_strb' of Covergroup instance 'vrf_axil_cg' has converged to empty list. The bin will be taken out of coverage calculation.
+#    Time: 75 ns  Iteration: 1  Instance: /tb_dvp2ax_stream
+# ** Warning: (vsim-8556) On evaluating the expression 'binsof(cp_resp) intersect{ value_list }' inside the select expression of Bin 'ig_resp' of Cross 'cx_dir_resp' in Covergroup instance 'vrf_axil_cg', no matching bins were found. The binsof expression will result in an empty set.
+#    Time: 75 ns  Iteration: 1  Instance: /tb_dvp2ax_stream
+# ** Warning: (vsim-8560) On evaluating the select expression of Cross bin 'cx_dir_resp.ig_resp' in Covergroup instance 'vrf_axil_cg', the bin is found to be empty since no cross products are selected.
+#    Time: 75 ns  Iteration: 1  Instance: /tb_dvp2ax_stream
 # [75000][VRF_AXIL] 环境连接完成：DUT=DVP2AXI，寄存器数=23
 # ================= 信号连通性自检报告（仿真报告头） =================
-# 自检信号数: 21    连接错误: 0    X/Z或未驱动: 0    恒定: 7
+# 自检信号数: 21    连接错误: 0    X/Z或未驱动: 0    恒定: 4
 # --------------------------------------------------------------------
 # 信号            侧别     跳变  X/Z  两侧一致  结论
 # --------------------------------------------------------------------
 # awvalid         驱动   是   否  是       正常
 # awaddr          驱动   是   否  是       正常
 # awport          驱动   是   否  是       正常
-# awready         响应   否   否  是       恒定未跳变
+# awready         响应   是   否  是       正常
 # wvalid          驱动   是   否  是       正常
 # wdata           驱动   是   否  是       正常
 # wstrb           驱动   是   否  是       正常
-# wready          响应   否   否  是       恒定未跳变
+# wready          响应   是   否  是       正常
 # bvalid          响应   是   否  是       正常
 # bready          驱动   是   否  是       正常
 # bid             响应   否   否  是       恒定未跳变
@@ -113,7 +120,7 @@ Reading pref.tcl
 # arvalid         驱动   是   否  是       正常
 # araddr          驱动   是   否  是       正常
 # arport          驱动   是   否  是       正常
-# arready         响应   否   否  是       恒定未跳变
+# arready         响应   是   否  是       正常
 # rvalid          响应   是   否  是       正常
 # rready          驱动   是   否  是       正常
 # rdata           响应   是   否  是       正常
@@ -146,8 +153,8 @@ Reading pref.tcl
 # 发起事务数   : 540
 # 参与比对检查 : 539    通过: 539    失败: 0    跳过: 1
 # 断言检查次数 : 6895    失败: 0
-# vrf_axil_cg 功能覆盖率 = 70.63%  (采样 539 次)
-# 整体覆盖率   : 70.63%
+# vrf_axil_cg 功能覆盖率 = 100.00%  (采样 539 次)
+# 整体覆盖率   : 100.00%
 # SIMULATION PASSED: 检查 539 项, 失败 0 项, 断言失败 0 项
 # ====================================================
 # ================================================================
@@ -157,14 +164,14 @@ Reading pref.tcl
 # SIMULATION PASSED
 # ** Note: $finish    : bench/tb/tb_dvp2ax_stream.sv(454)
 #    Time: 20185 ns  Iteration: 2  Instance: /tb_dvp2ax_stream
-# End time: 20:21:47 on Sep 15,2026, Elapsed time: 0:00:03
-# Errors: 0, Warnings: 11
+# End time: 20:42:29 on Sep 15,2026, Elapsed time: 0:00:05
+# Errors: 0, Warnings: 14
 [VRF_AXIL] 报告 : log/regression/seed_1/tb_dvp2ax_stream_report.txt
 
 ########## 回归轮次 seed=2 ##########
 [VRF_AXIL] 编译 : tb_dvp2ax_stream  (+define+VRF_AXIL_BIND_DVP2AXI)
 Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
-Start time: 20:21:47 on Sep 15,2026
+Start time: 20:42:29 on Sep 15,2026
 vlog -mfcu -sv -work work "+define+VRF_AXIL_BIND_DVP2AXI" -f bench/scripts/filelist.f 
 -- Compiling module DVP2axi_stream
 -- Compiling interface vrf_axil_mst_if
@@ -185,7 +192,7 @@ Top level modules:
 	tb_vrf_axil_demo
 	tb_dvp2ax_stream
 ** Warning: (vlog-2650) 'bind' found in compilation unit scope. Please use -cuname to ensure that 'bind' gets elaborated.
-End time: 20:21:47 on Sep 15,2026, Elapsed time: 0:00:00
+End time: 20:42:29 on Sep 15,2026, Elapsed time: 0:00:00
 Errors: 0, Warnings: 1
 [VRF_AXIL] 仿真 : tb_dvp2ax_stream  seed=2
 Reading pref.tcl
@@ -193,8 +200,8 @@ Reading pref.tcl
 # 2020.4
 
 # vsim -c -do "run -all; quit -f" -l log/regression/seed_2/tb_dvp2ax_stream.log work.tb_dvp2ax_stream "+seed=2" "+log_dir=log/regression/seed_2" 
-# Start time: 20:21:50 on Sep 15,2026
-# ** Note: (vsim-8009) Loading existing optimized design _opt
+# Start time: 20:42:31 on Sep 15,2026
+# ** Note: (vsim-8009) Loading existing optimized design _opt1
 # //  ModelSim SE-64 2020.4 Oct 13 2020
 # //
 # //  Copyright 1991-2020 Mentor Graphics Corporation
@@ -220,7 +227,7 @@ Reading pref.tcl
 #    Time: 0 ps  Iteration: 0  Region: /vrf_axil_pkg::vrf_axil_bringup #(32, 32, 4) File: bench/lib/Pkg/../Chk/vrf_axil_bringup.svh Line: 124
 # ** Warning: (vsim-8441) Clocking block output mst_vif.cb.rready is not legal in this
 # or another expression.
-#    Time: 0 ps  Iteration: 0  Region: /vrf_axil_pkg::vrf_axil_bringup #(32, 32, 4) File: bench/lib/Pkg/../Chk/vrf_axil_bringup.svh Line: 157
+#    Time: 0 ps  Iteration: 0  Region: /vrf_axil_pkg::vrf_axil_bringup #(32, 32, 4) File: bench/lib/Pkg/../Chk/vrf_axil_bringup.svh Line: 164
 # ** Warning: (vsim-8441) Clocking block output mst_vif.cb.awvalid is not legal in this
 # or another expression.
 #    Time: 0 ps  Iteration: 0  Region: /vrf_axil_pkg::vrf_axil_driver #(32, 32, 4, 4) File: bench/lib/Pkg/../Drv/vrf_axil_driver.svh Line: 113
@@ -254,20 +261,26 @@ Reading pref.tcl
 #  被测对象 : RTL/DVP2axi_stream.v 的 AXI4-Lite 寄存器块
 #  随机种子 : 2  (可用 +seed=2 复现)
 # ================================================================
+# ** Warning: (vsim-8549) After dropping the illegal, ignore or invalid values, the values list associated with scalar bin 'none' in Coverpoint 'cp_strb' of Covergroup instance 'vrf_axil_cg' has converged to empty list. The bin will be taken out of coverage calculation.
+#    Time: 75 ns  Iteration: 1  Instance: /tb_dvp2ax_stream
+# ** Warning: (vsim-8556) On evaluating the expression 'binsof(cp_resp) intersect{ value_list }' inside the select expression of Bin 'ig_resp' of Cross 'cx_dir_resp' in Covergroup instance 'vrf_axil_cg', no matching bins were found. The binsof expression will result in an empty set.
+#    Time: 75 ns  Iteration: 1  Instance: /tb_dvp2ax_stream
+# ** Warning: (vsim-8560) On evaluating the select expression of Cross bin 'cx_dir_resp.ig_resp' in Covergroup instance 'vrf_axil_cg', the bin is found to be empty since no cross products are selected.
+#    Time: 75 ns  Iteration: 1  Instance: /tb_dvp2ax_stream
 # [75000][VRF_AXIL] 环境连接完成：DUT=DVP2AXI，寄存器数=23
 # ================= 信号连通性自检报告（仿真报告头） =================
-# 自检信号数: 21    连接错误: 0    X/Z或未驱动: 0    恒定: 7
+# 自检信号数: 21    连接错误: 0    X/Z或未驱动: 0    恒定: 4
 # --------------------------------------------------------------------
 # 信号            侧别     跳变  X/Z  两侧一致  结论
 # --------------------------------------------------------------------
 # awvalid         驱动   是   否  是       正常
 # awaddr          驱动   是   否  是       正常
 # awport          驱动   是   否  是       正常
-# awready         响应   否   否  是       恒定未跳变
+# awready         响应   是   否  是       正常
 # wvalid          驱动   是   否  是       正常
 # wdata           驱动   是   否  是       正常
 # wstrb           驱动   是   否  是       正常
-# wready          响应   否   否  是       恒定未跳变
+# wready          响应   是   否  是       正常
 # bvalid          响应   是   否  是       正常
 # bready          驱动   是   否  是       正常
 # bid             响应   否   否  是       恒定未跳变
@@ -275,7 +288,7 @@ Reading pref.tcl
 # arvalid         驱动   是   否  是       正常
 # araddr          驱动   是   否  是       正常
 # arport          驱动   是   否  是       正常
-# arready         响应   否   否  是       恒定未跳变
+# arready         响应   是   否  是       正常
 # rvalid          响应   是   否  是       正常
 # rready          驱动   是   否  是       正常
 # rdata           响应   是   否  是       正常
@@ -308,8 +321,8 @@ Reading pref.tcl
 # 发起事务数   : 540
 # 参与比对检查 : 539    通过: 539    失败: 0    跳过: 1
 # 断言检查次数 : 6857    失败: 0
-# vrf_axil_cg 功能覆盖率 = 70.63%  (采样 539 次)
-# 整体覆盖率   : 70.63%
+# vrf_axil_cg 功能覆盖率 = 100.00%  (采样 539 次)
+# 整体覆盖率   : 100.00%
 # SIMULATION PASSED: 检查 539 项, 失败 0 项, 断言失败 0 项
 # ====================================================
 # ================================================================
@@ -319,14 +332,14 @@ Reading pref.tcl
 # SIMULATION PASSED
 # ** Note: $finish    : bench/tb/tb_dvp2ax_stream.sv(454)
 #    Time: 20865 ns  Iteration: 2  Instance: /tb_dvp2ax_stream
-# End time: 20:21:52 on Sep 15,2026, Elapsed time: 0:00:02
-# Errors: 0, Warnings: 11
+# End time: 20:42:34 on Sep 15,2026, Elapsed time: 0:00:03
+# Errors: 0, Warnings: 14
 [VRF_AXIL] 报告 : log/regression/seed_2/tb_dvp2ax_stream_report.txt
 
 ########## 回归轮次 seed=3 ##########
 [VRF_AXIL] 编译 : tb_dvp2ax_stream  (+define+VRF_AXIL_BIND_DVP2AXI)
 Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
-Start time: 20:21:53 on Sep 15,2026
+Start time: 20:42:34 on Sep 15,2026
 vlog -mfcu -sv -work work "+define+VRF_AXIL_BIND_DVP2AXI" -f bench/scripts/filelist.f 
 -- Compiling module DVP2axi_stream
 -- Compiling interface vrf_axil_mst_if
@@ -347,7 +360,7 @@ Top level modules:
 	tb_vrf_axil_demo
 	tb_dvp2ax_stream
 ** Warning: (vlog-2650) 'bind' found in compilation unit scope. Please use -cuname to ensure that 'bind' gets elaborated.
-End time: 20:21:53 on Sep 15,2026, Elapsed time: 0:00:00
+End time: 20:42:34 on Sep 15,2026, Elapsed time: 0:00:00
 Errors: 0, Warnings: 1
 [VRF_AXIL] 仿真 : tb_dvp2ax_stream  seed=3
 Reading pref.tcl
@@ -355,8 +368,8 @@ Reading pref.tcl
 # 2020.4
 
 # vsim -c -do "run -all; quit -f" -l log/regression/seed_3/tb_dvp2ax_stream.log work.tb_dvp2ax_stream "+seed=3" "+log_dir=log/regression/seed_3" 
-# Start time: 20:21:55 on Sep 15,2026
-# ** Note: (vsim-8009) Loading existing optimized design _opt
+# Start time: 20:42:37 on Sep 15,2026
+# ** Note: (vsim-8009) Loading existing optimized design _opt1
 # //  ModelSim SE-64 2020.4 Oct 13 2020
 # //
 # //  Copyright 1991-2020 Mentor Graphics Corporation
@@ -382,7 +395,7 @@ Reading pref.tcl
 #    Time: 0 ps  Iteration: 0  Region: /vrf_axil_pkg::vrf_axil_bringup #(32, 32, 4) File: bench/lib/Pkg/../Chk/vrf_axil_bringup.svh Line: 124
 # ** Warning: (vsim-8441) Clocking block output mst_vif.cb.rready is not legal in this
 # or another expression.
-#    Time: 0 ps  Iteration: 0  Region: /vrf_axil_pkg::vrf_axil_bringup #(32, 32, 4) File: bench/lib/Pkg/../Chk/vrf_axil_bringup.svh Line: 157
+#    Time: 0 ps  Iteration: 0  Region: /vrf_axil_pkg::vrf_axil_bringup #(32, 32, 4) File: bench/lib/Pkg/../Chk/vrf_axil_bringup.svh Line: 164
 # ** Warning: (vsim-8441) Clocking block output mst_vif.cb.awvalid is not legal in this
 # or another expression.
 #    Time: 0 ps  Iteration: 0  Region: /vrf_axil_pkg::vrf_axil_driver #(32, 32, 4, 4) File: bench/lib/Pkg/../Drv/vrf_axil_driver.svh Line: 113
@@ -416,20 +429,26 @@ Reading pref.tcl
 #  被测对象 : RTL/DVP2axi_stream.v 的 AXI4-Lite 寄存器块
 #  随机种子 : 3  (可用 +seed=3 复现)
 # ================================================================
+# ** Warning: (vsim-8549) After dropping the illegal, ignore or invalid values, the values list associated with scalar bin 'none' in Coverpoint 'cp_strb' of Covergroup instance 'vrf_axil_cg' has converged to empty list. The bin will be taken out of coverage calculation.
+#    Time: 75 ns  Iteration: 1  Instance: /tb_dvp2ax_stream
+# ** Warning: (vsim-8556) On evaluating the expression 'binsof(cp_resp) intersect{ value_list }' inside the select expression of Bin 'ig_resp' of Cross 'cx_dir_resp' in Covergroup instance 'vrf_axil_cg', no matching bins were found. The binsof expression will result in an empty set.
+#    Time: 75 ns  Iteration: 1  Instance: /tb_dvp2ax_stream
+# ** Warning: (vsim-8560) On evaluating the select expression of Cross bin 'cx_dir_resp.ig_resp' in Covergroup instance 'vrf_axil_cg', the bin is found to be empty since no cross products are selected.
+#    Time: 75 ns  Iteration: 1  Instance: /tb_dvp2ax_stream
 # [75000][VRF_AXIL] 环境连接完成：DUT=DVP2AXI，寄存器数=23
 # ================= 信号连通性自检报告（仿真报告头） =================
-# 自检信号数: 21    连接错误: 0    X/Z或未驱动: 0    恒定: 7
+# 自检信号数: 21    连接错误: 0    X/Z或未驱动: 0    恒定: 4
 # --------------------------------------------------------------------
 # 信号            侧别     跳变  X/Z  两侧一致  结论
 # --------------------------------------------------------------------
 # awvalid         驱动   是   否  是       正常
 # awaddr          驱动   是   否  是       正常
 # awport          驱动   是   否  是       正常
-# awready         响应   否   否  是       恒定未跳变
+# awready         响应   是   否  是       正常
 # wvalid          驱动   是   否  是       正常
 # wdata           驱动   是   否  是       正常
 # wstrb           驱动   是   否  是       正常
-# wready          响应   否   否  是       恒定未跳变
+# wready          响应   是   否  是       正常
 # bvalid          响应   是   否  是       正常
 # bready          驱动   是   否  是       正常
 # bid             响应   否   否  是       恒定未跳变
@@ -437,7 +456,7 @@ Reading pref.tcl
 # arvalid         驱动   是   否  是       正常
 # araddr          驱动   是   否  是       正常
 # arport          驱动   是   否  是       正常
-# arready         响应   否   否  是       恒定未跳变
+# arready         响应   是   否  是       正常
 # rvalid          响应   是   否  是       正常
 # rready          驱动   是   否  是       正常
 # rdata           响应   是   否  是       正常
@@ -470,8 +489,8 @@ Reading pref.tcl
 # 发起事务数   : 540
 # 参与比对检查 : 539    通过: 539    失败: 0    跳过: 1
 # 断言检查次数 : 7055    失败: 0
-# vrf_axil_cg 功能覆盖率 = 70.63%  (采样 539 次)
-# 整体覆盖率   : 70.63%
+# vrf_axil_cg 功能覆盖率 = 100.00%  (采样 539 次)
+# 整体覆盖率   : 100.00%
 # SIMULATION PASSED: 检查 539 项, 失败 0 项, 断言失败 0 项
 # ====================================================
 # ================================================================
@@ -481,14 +500,14 @@ Reading pref.tcl
 # SIMULATION PASSED
 # ** Note: $finish    : bench/tb/tb_dvp2ax_stream.sv(454)
 #    Time: 20605 ns  Iteration: 2  Instance: /tb_dvp2ax_stream
-# End time: 20:21:58 on Sep 15,2026, Elapsed time: 0:00:03
-# Errors: 0, Warnings: 11
+# End time: 20:42:39 on Sep 15,2026, Elapsed time: 0:00:02
+# Errors: 0, Warnings: 14
 [VRF_AXIL] 报告 : log/regression/seed_3/tb_dvp2ax_stream_report.txt
 
 ########## 回归轮次 seed=4 ##########
 [VRF_AXIL] 编译 : tb_dvp2ax_stream  (+define+VRF_AXIL_BIND_DVP2AXI)
 Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
-Start time: 20:21:59 on Sep 15,2026
+Start time: 20:42:40 on Sep 15,2026
 vlog -mfcu -sv -work work "+define+VRF_AXIL_BIND_DVP2AXI" -f bench/scripts/filelist.f 
 -- Compiling module DVP2axi_stream
 -- Compiling interface vrf_axil_mst_if
@@ -509,7 +528,7 @@ Top level modules:
 	tb_vrf_axil_demo
 	tb_dvp2ax_stream
 ** Warning: (vlog-2650) 'bind' found in compilation unit scope. Please use -cuname to ensure that 'bind' gets elaborated.
-End time: 20:21:59 on Sep 15,2026, Elapsed time: 0:00:00
+End time: 20:42:40 on Sep 15,2026, Elapsed time: 0:00:00
 Errors: 0, Warnings: 1
 [VRF_AXIL] 仿真 : tb_dvp2ax_stream  seed=4
 Reading pref.tcl
@@ -517,8 +536,8 @@ Reading pref.tcl
 # 2020.4
 
 # vsim -c -do "run -all; quit -f" -l log/regression/seed_4/tb_dvp2ax_stream.log work.tb_dvp2ax_stream "+seed=4" "+log_dir=log/regression/seed_4" 
-# Start time: 20:22:01 on Sep 15,2026
-# ** Note: (vsim-8009) Loading existing optimized design _opt
+# Start time: 20:42:42 on Sep 15,2026
+# ** Note: (vsim-8009) Loading existing optimized design _opt1
 # //  ModelSim SE-64 2020.4 Oct 13 2020
 # //
 # //  Copyright 1991-2020 Mentor Graphics Corporation
@@ -544,7 +563,7 @@ Reading pref.tcl
 #    Time: 0 ps  Iteration: 0  Region: /vrf_axil_pkg::vrf_axil_bringup #(32, 32, 4) File: bench/lib/Pkg/../Chk/vrf_axil_bringup.svh Line: 124
 # ** Warning: (vsim-8441) Clocking block output mst_vif.cb.rready is not legal in this
 # or another expression.
-#    Time: 0 ps  Iteration: 0  Region: /vrf_axil_pkg::vrf_axil_bringup #(32, 32, 4) File: bench/lib/Pkg/../Chk/vrf_axil_bringup.svh Line: 157
+#    Time: 0 ps  Iteration: 0  Region: /vrf_axil_pkg::vrf_axil_bringup #(32, 32, 4) File: bench/lib/Pkg/../Chk/vrf_axil_bringup.svh Line: 164
 # ** Warning: (vsim-8441) Clocking block output mst_vif.cb.awvalid is not legal in this
 # or another expression.
 #    Time: 0 ps  Iteration: 0  Region: /vrf_axil_pkg::vrf_axil_driver #(32, 32, 4, 4) File: bench/lib/Pkg/../Drv/vrf_axil_driver.svh Line: 113
@@ -578,20 +597,26 @@ Reading pref.tcl
 #  被测对象 : RTL/DVP2axi_stream.v 的 AXI4-Lite 寄存器块
 #  随机种子 : 4  (可用 +seed=4 复现)
 # ================================================================
+# ** Warning: (vsim-8549) After dropping the illegal, ignore or invalid values, the values list associated with scalar bin 'none' in Coverpoint 'cp_strb' of Covergroup instance 'vrf_axil_cg' has converged to empty list. The bin will be taken out of coverage calculation.
+#    Time: 75 ns  Iteration: 1  Instance: /tb_dvp2ax_stream
+# ** Warning: (vsim-8556) On evaluating the expression 'binsof(cp_resp) intersect{ value_list }' inside the select expression of Bin 'ig_resp' of Cross 'cx_dir_resp' in Covergroup instance 'vrf_axil_cg', no matching bins were found. The binsof expression will result in an empty set.
+#    Time: 75 ns  Iteration: 1  Instance: /tb_dvp2ax_stream
+# ** Warning: (vsim-8560) On evaluating the select expression of Cross bin 'cx_dir_resp.ig_resp' in Covergroup instance 'vrf_axil_cg', the bin is found to be empty since no cross products are selected.
+#    Time: 75 ns  Iteration: 1  Instance: /tb_dvp2ax_stream
 # [75000][VRF_AXIL] 环境连接完成：DUT=DVP2AXI，寄存器数=23
 # ================= 信号连通性自检报告（仿真报告头） =================
-# 自检信号数: 21    连接错误: 0    X/Z或未驱动: 0    恒定: 7
+# 自检信号数: 21    连接错误: 0    X/Z或未驱动: 0    恒定: 4
 # --------------------------------------------------------------------
 # 信号            侧别     跳变  X/Z  两侧一致  结论
 # --------------------------------------------------------------------
 # awvalid         驱动   是   否  是       正常
 # awaddr          驱动   是   否  是       正常
 # awport          驱动   是   否  是       正常
-# awready         响应   否   否  是       恒定未跳变
+# awready         响应   是   否  是       正常
 # wvalid          驱动   是   否  是       正常
 # wdata           驱动   是   否  是       正常
 # wstrb           驱动   是   否  是       正常
-# wready          响应   否   否  是       恒定未跳变
+# wready          响应   是   否  是       正常
 # bvalid          响应   是   否  是       正常
 # bready          驱动   是   否  是       正常
 # bid             响应   否   否  是       恒定未跳变
@@ -599,7 +624,7 @@ Reading pref.tcl
 # arvalid         驱动   是   否  是       正常
 # araddr          驱动   是   否  是       正常
 # arport          驱动   是   否  是       正常
-# arready         响应   否   否  是       恒定未跳变
+# arready         响应   是   否  是       正常
 # rvalid          响应   是   否  是       正常
 # rready          驱动   是   否  是       正常
 # rdata           响应   是   否  是       正常
@@ -632,8 +657,8 @@ Reading pref.tcl
 # 发起事务数   : 540
 # 参与比对检查 : 539    通过: 539    失败: 0    跳过: 1
 # 断言检查次数 : 7129    失败: 0
-# vrf_axil_cg 功能覆盖率 = 70.63%  (采样 539 次)
-# 整体覆盖率   : 70.63%
+# vrf_axil_cg 功能覆盖率 = 100.00%  (采样 539 次)
+# 整体覆盖率   : 100.00%
 # SIMULATION PASSED: 检查 539 项, 失败 0 项, 断言失败 0 项
 # ====================================================
 # ================================================================
@@ -643,14 +668,14 @@ Reading pref.tcl
 # SIMULATION PASSED
 # ** Note: $finish    : bench/tb/tb_dvp2ax_stream.sv(454)
 #    Time: 20785 ns  Iteration: 2  Instance: /tb_dvp2ax_stream
-# End time: 20:22:04 on Sep 15,2026, Elapsed time: 0:00:03
-# Errors: 0, Warnings: 11
+# End time: 20:42:45 on Sep 15,2026, Elapsed time: 0:00:03
+# Errors: 0, Warnings: 14
 [VRF_AXIL] 报告 : log/regression/seed_4/tb_dvp2ax_stream_report.txt
 
 ########## 回归轮次 seed=5 ##########
 [VRF_AXIL] 编译 : tb_dvp2ax_stream  (+define+VRF_AXIL_BIND_DVP2AXI)
 Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
-Start time: 20:22:05 on Sep 15,2026
+Start time: 20:42:45 on Sep 15,2026
 vlog -mfcu -sv -work work "+define+VRF_AXIL_BIND_DVP2AXI" -f bench/scripts/filelist.f 
 -- Compiling module DVP2axi_stream
 -- Compiling interface vrf_axil_mst_if
@@ -671,7 +696,7 @@ Top level modules:
 	tb_vrf_axil_demo
 	tb_dvp2ax_stream
 ** Warning: (vlog-2650) 'bind' found in compilation unit scope. Please use -cuname to ensure that 'bind' gets elaborated.
-End time: 20:22:05 on Sep 15,2026, Elapsed time: 0:00:00
+End time: 20:42:45 on Sep 15,2026, Elapsed time: 0:00:00
 Errors: 0, Warnings: 1
 [VRF_AXIL] 仿真 : tb_dvp2ax_stream  seed=5
 Reading pref.tcl
@@ -679,8 +704,8 @@ Reading pref.tcl
 # 2020.4
 
 # vsim -c -do "run -all; quit -f" -l log/regression/seed_5/tb_dvp2ax_stream.log work.tb_dvp2ax_stream "+seed=5" "+log_dir=log/regression/seed_5" 
-# Start time: 20:22:07 on Sep 15,2026
-# ** Note: (vsim-8009) Loading existing optimized design _opt
+# Start time: 20:42:47 on Sep 15,2026
+# ** Note: (vsim-8009) Loading existing optimized design _opt1
 # //  ModelSim SE-64 2020.4 Oct 13 2020
 # //
 # //  Copyright 1991-2020 Mentor Graphics Corporation
@@ -706,7 +731,7 @@ Reading pref.tcl
 #    Time: 0 ps  Iteration: 0  Region: /vrf_axil_pkg::vrf_axil_bringup #(32, 32, 4) File: bench/lib/Pkg/../Chk/vrf_axil_bringup.svh Line: 124
 # ** Warning: (vsim-8441) Clocking block output mst_vif.cb.rready is not legal in this
 # or another expression.
-#    Time: 0 ps  Iteration: 0  Region: /vrf_axil_pkg::vrf_axil_bringup #(32, 32, 4) File: bench/lib/Pkg/../Chk/vrf_axil_bringup.svh Line: 157
+#    Time: 0 ps  Iteration: 0  Region: /vrf_axil_pkg::vrf_axil_bringup #(32, 32, 4) File: bench/lib/Pkg/../Chk/vrf_axil_bringup.svh Line: 164
 # ** Warning: (vsim-8441) Clocking block output mst_vif.cb.awvalid is not legal in this
 # or another expression.
 #    Time: 0 ps  Iteration: 0  Region: /vrf_axil_pkg::vrf_axil_driver #(32, 32, 4, 4) File: bench/lib/Pkg/../Drv/vrf_axil_driver.svh Line: 113
@@ -740,20 +765,26 @@ Reading pref.tcl
 #  被测对象 : RTL/DVP2axi_stream.v 的 AXI4-Lite 寄存器块
 #  随机种子 : 5  (可用 +seed=5 复现)
 # ================================================================
+# ** Warning: (vsim-8549) After dropping the illegal, ignore or invalid values, the values list associated with scalar bin 'none' in Coverpoint 'cp_strb' of Covergroup instance 'vrf_axil_cg' has converged to empty list. The bin will be taken out of coverage calculation.
+#    Time: 75 ns  Iteration: 1  Instance: /tb_dvp2ax_stream
+# ** Warning: (vsim-8556) On evaluating the expression 'binsof(cp_resp) intersect{ value_list }' inside the select expression of Bin 'ig_resp' of Cross 'cx_dir_resp' in Covergroup instance 'vrf_axil_cg', no matching bins were found. The binsof expression will result in an empty set.
+#    Time: 75 ns  Iteration: 1  Instance: /tb_dvp2ax_stream
+# ** Warning: (vsim-8560) On evaluating the select expression of Cross bin 'cx_dir_resp.ig_resp' in Covergroup instance 'vrf_axil_cg', the bin is found to be empty since no cross products are selected.
+#    Time: 75 ns  Iteration: 1  Instance: /tb_dvp2ax_stream
 # [75000][VRF_AXIL] 环境连接完成：DUT=DVP2AXI，寄存器数=23
 # ================= 信号连通性自检报告（仿真报告头） =================
-# 自检信号数: 21    连接错误: 0    X/Z或未驱动: 0    恒定: 7
+# 自检信号数: 21    连接错误: 0    X/Z或未驱动: 0    恒定: 4
 # --------------------------------------------------------------------
 # 信号            侧别     跳变  X/Z  两侧一致  结论
 # --------------------------------------------------------------------
 # awvalid         驱动   是   否  是       正常
 # awaddr          驱动   是   否  是       正常
 # awport          驱动   是   否  是       正常
-# awready         响应   否   否  是       恒定未跳变
+# awready         响应   是   否  是       正常
 # wvalid          驱动   是   否  是       正常
 # wdata           驱动   是   否  是       正常
 # wstrb           驱动   是   否  是       正常
-# wready          响应   否   否  是       恒定未跳变
+# wready          响应   是   否  是       正常
 # bvalid          响应   是   否  是       正常
 # bready          驱动   是   否  是       正常
 # bid             响应   否   否  是       恒定未跳变
@@ -761,7 +792,7 @@ Reading pref.tcl
 # arvalid         驱动   是   否  是       正常
 # araddr          驱动   是   否  是       正常
 # arport          驱动   是   否  是       正常
-# arready         响应   否   否  是       恒定未跳变
+# arready         响应   是   否  是       正常
 # rvalid          响应   是   否  是       正常
 # rready          驱动   是   否  是       正常
 # rdata           响应   是   否  是       正常
@@ -794,8 +825,8 @@ Reading pref.tcl
 # 发起事务数   : 540
 # 参与比对检查 : 539    通过: 539    失败: 0    跳过: 1
 # 断言检查次数 : 7184    失败: 0
-# vrf_axil_cg 功能覆盖率 = 70.63%  (采样 539 次)
-# 整体覆盖率   : 70.63%
+# vrf_axil_cg 功能覆盖率 = 100.00%  (采样 539 次)
+# 整体覆盖率   : 100.00%
 # SIMULATION PASSED: 检查 539 项, 失败 0 项, 断言失败 0 项
 # ====================================================
 # ================================================================
@@ -805,8 +836,8 @@ Reading pref.tcl
 # SIMULATION PASSED
 # ** Note: $finish    : bench/tb/tb_dvp2ax_stream.sv(454)
 #    Time: 21035 ns  Iteration: 2  Instance: /tb_dvp2ax_stream
-# End time: 20:22:10 on Sep 15,2026, Elapsed time: 0:00:03
-# Errors: 0, Warnings: 11
+# End time: 20:42:51 on Sep 15,2026, Elapsed time: 0:00:04
+# Errors: 0, Warnings: 14
 [VRF_AXIL] 报告 : log/regression/seed_5/tb_dvp2ax_stream_report.txt
 
 # VRF_AXI4L 批量回归汇总

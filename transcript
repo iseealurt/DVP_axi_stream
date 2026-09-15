@@ -10,7 +10,7 @@
 # -mfcu -sv -work work +define+VRF_AXIL_BIND_REF -f bench/scripts/filelist.f
 # [VRF_AXIL] compile : tb_vrf_axil_demo  (+define+VRF_AXIL_BIND_REF)
 # Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
-# Start time: 20:25:49 on Sep 15,2026
+# Start time: 20:43:47 on Sep 15,2026
 # vlog -mfcu -sv -work work "+define+VRF_AXIL_BIND_REF" -f bench/scripts/filelist.f 
 # -- Compiling module DVP2axi_stream
 # -- Compiling interface vrf_axil_mst_if
@@ -20,6 +20,7 @@
 # -- Compiling module vrf_axil_slv_ref
 # -- Importing package vrf_axil_pkg
 # -- Compiling module vrf_axil_chk
+# ** Warning: bench/lib/Chk/vrf_axil_chk.sv(268): (vlog-13233) Design unit "DVP2axi_stream_v_unit" already exists and will be overwritten. Design unit compiled with different set of options.
 # -- Compiling package DVP2axi_stream_v_unit
 # -- Compiling module vrf_axil_harness_ref
 # -- Importing package vrf_axil_pkg
@@ -31,8 +32,8 @@
 # 	tb_vrf_axil_demo
 # 	tb_dvp2ax_stream
 # ** Warning: (vlog-2650) 'bind' found in compilation unit scope. Please use -cuname to ensure that 'bind' gets elaborated.
-# End time: 20:25:50 on Sep 15,2026, Elapsed time: 0:00:01
-# Errors: 0, Warnings: 1
+# End time: 20:43:47 on Sep 15,2026, Elapsed time: 0:00:00
+# Errors: 0, Warnings: 2
 # -c -l log/tb_vrf_axil_demo.log work.tb_vrf_axil_demo
 # -c -l log/tb_vrf_axil_demo.log work.tb_vrf_axil_demo +log_dir=log
 # run -all; quit -f
