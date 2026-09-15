@@ -1,0 +1,3 @@
+[685000] mon_rd[36] RD addr=0x80 wdata=0x0 strb=1111 rdata=0x0 resp=OKAY
+[755000] mon_rd[39] RD addr=0x80 wdata=0x0 strb=1111 rdata=0x0 resp=OKAY
+[845000] mon_rd[42] RD addr=0x80 wdata=0x0 strb=1111 rdata=0x0 resp=OKAY

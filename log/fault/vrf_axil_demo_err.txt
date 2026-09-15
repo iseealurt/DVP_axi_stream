@@ -1,0 +1,27 @@
+# vrf_axil_demo 失败用例错误报告
+# 仿真时间: 635000 ns, 随机种子: 318257127
+# ---------------------------------------------------------------
+----- 失败事务 #1 -----
+  时间戳   : 685000 ns
+  激励     : fault_inject_rd[35] RD addr=0x80 data=0x0 strb=1111 mst_id=0
+  观测     : mon_rd[36] RD addr=0x80 wdata=0x0 strb=1111 rdata=0x0 resp=OKAY
+  期望读数据: 0xdeadbeef
+  期望响应 : OKAY
+  失败原因 : 读数据不一致：模型预期 0xdeadbeef，总线返回 0x0
+
+----- 失败事务 #2 -----
+  时间戳   : 755000 ns
+  激励     : fault_inject_rd[35] RD addr=0x80 data=0x0 strb=1111 mst_id=0
+  观测     : mon_rd[39] RD addr=0x80 wdata=0x0 strb=1111 rdata=0x0 resp=OKAY
+  期望读数据: 0xdeadbeef
+  期望响应 : OKAY
+  失败原因 : 读数据不一致：模型预期 0xdeadbeef，总线返回 0x0
+
+----- 失败事务 #3 -----
+  时间戳   : 845000 ns
+  激励     : fault_inject_rd[35] RD addr=0x80 data=0x0 strb=1111 mst_id=0
+  观测     : mon_rd[42] RD addr=0x80 wdata=0x0 strb=1111 rdata=0x0 resp=OKAY
+  期望读数据: 0xdeadbeef
+  期望响应 : OKAY
+  失败原因 : 读数据不一致：模型预期 0xdeadbeef，总线返回 0x0
+
