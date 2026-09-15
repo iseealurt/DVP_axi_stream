@@ -40,7 +40,6 @@ covergroup cg_axil (
 
   // 字节选通：仅写事务具备字节使能语义，读事务不采样该覆盖点
   cp_strb : coverpoint strb iff (dir == 2'd0) {
-    bins none    = {4'b0000};
     bins b0      = {4'b0001};
     bins b1      = {4'b0010};
     bins b2      = {4'b0100};
@@ -85,10 +84,8 @@ covergroup cg_axil (
     ignore_bins ig_rd = binsof(cp_dir) intersect {2'd1};
   }
 
-  // 方向×响应：已排除的不可达响应类型同步从交叉中排除
-  cx_dir_resp : cross cp_dir, cp_resp {
-    ignore_bins ig_resp = binsof(cp_resp) intersect {2'd1, 2'd2, 2'd3};
-  }
+  // 方向×响应：异常响应已在 cp_resp 中以 ignore_bins 排除，交叉无需重复声明
+  cx_dir_resp : cross cp_dir, cp_resp;
 endgroup
 
 class vrf_axil_cov #(

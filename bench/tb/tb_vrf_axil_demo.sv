@@ -189,7 +189,7 @@ module tb_vrf_axil_demo;
     repeat (3) @(posedge aclk);
 
     // 配置
-    cfg = new("vrf_axil_demo");
+    cfg = new("tb_vrf_axil_demo");
     cfg.seed               = seed;
     cfg.reg_map            = "REF_SLAVE";
     cfg.addr_min           = 32'h00;

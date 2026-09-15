@@ -69,6 +69,10 @@ class vrf_axil_env #(
     mnt_vif = vrf_axil_conn_h #(AWIDTH, DWIDTH, IDWIDTH)::mnt;
     slv_vif = vrf_axil_conn_h #(AWIDTH, DWIDTH, IDWIDTH)::slv;
 
+    if (vrf_axil_conn_h #(AWIDTH, DWIDTH, IDWIDTH)::conflict) begin
+      $display("[VRF_AXIL][ERROR] 检测到同特化的多个挂具实例，接口句柄已被覆盖，自动连接结果不可信");
+      $finish;
+    end
     if (mst_vif == null || mnt_vif == null) begin
       $display("[VRF_AXIL][ERROR] 未获取到接口句柄，通配符自动连接失败");
       $finish;

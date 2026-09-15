@@ -6,6 +6,9 @@
 //       2) 走线激励：对允许自由翻转的信号做 0/1 走线，确认 TB 驱动可达 DUT
 //       3) 探针事务：一读一写覆盖全部有效/就绪/响应信号，随后恢复原值
 //   - 识别未驱动、恒定与连接错误的信号，并在仿真报告头反馈
+//
+// 驱动归属：主机侧驱动信号在本阶段由本类独占（`mst_vif.<sig> <= ...` 直接赋值），
+//   自检结束后交回 vrf_axil_driver；接口内不写初值，避免多进程驱动。
 // =============================================================================
 class vrf_axil_bringup #(
   parameter int AWIDTH  = VRF_AW,
@@ -72,6 +75,22 @@ class vrf_axil_bringup #(
     return 1'b0;
   endfunction
 
+  // 主机侧驱动信号初始化：本阶段开始时调用，避免上电 X 态
+  task automatic init_outputs();
+    mst_vif.awvalid <= 1'b0;
+    mst_vif.awaddr  <= '0;
+    mst_vif.awport  <= '0;
+    mst_vif.wvalid  <= 1'b0;
+    mst_vif.wdata   <= '0;
+    mst_vif.wstrb   <= '0;
+    mst_vif.bready  <= 1'b0;
+    mst_vif.arvalid <= 1'b0;
+    mst_vif.araddr  <= '0;
+    mst_vif.arport  <= '0;
+    mst_vif.rready  <= 1'b0;
+    @(mst_vif.cb);
+  endtask
+
   // ------------------------------ 逐拍采样 ------------------------------
   `define VRF_BU_SAMPLE(SIG) \
     begin \
@@ -115,13 +134,13 @@ class vrf_axil_bringup #(
   task automatic probe_write(logic [31:0] addr, logic [31:0] data, logic [3:0] strb);
     int cyc = 0;
     @(mst_vif.cb);
-    mst_vif.cb.awvalid <= 1'b1;
-    mst_vif.cb.awaddr  <= addr;
-    mst_vif.cb.awport  <= 3'b000;
-    mst_vif.cb.wvalid  <= 1'b1;
-    mst_vif.cb.wdata   <= data;
-    mst_vif.cb.wstrb   <= strb;
-    mst_vif.cb.bready  <= 1'b1;
+    mst_vif.awvalid <= 1'b1;
+    mst_vif.awaddr  <= addr;
+    mst_vif.awport  <= 3'b000;
+    mst_vif.wvalid  <= 1'b1;
+    mst_vif.wdata   <= data;
+    mst_vif.wstrb   <= strb;
+    mst_vif.bready  <= 1'b1;
     forever begin
       @(mst_vif.cb);
       if (mst_vif.cb.awready && mst_vif.cb.wready) begin
@@ -129,58 +148,58 @@ class vrf_axil_bringup #(
         // 逐拍采样未必能捕捉到，此处以握手观测为准）
         chg["awready"] = 1'b1;
         chg["wready"]  = 1'b1;
-        mst_vif.cb.awvalid <= 1'b0;
-        mst_vif.cb.wvalid  <= 1'b0;
+        mst_vif.awvalid <= 1'b0;
+        mst_vif.wvalid  <= 1'b0;
         break;
       end
       cyc++;
       if (cyc > cfg.timeout_cycles) begin
-        mst_vif.cb.awvalid <= 1'b0;
-        mst_vif.cb.wvalid  <= 1'b0;
-        mst_vif.cb.bready  <= 1'b0;
+        mst_vif.awvalid <= 1'b0;
+        mst_vif.wvalid  <= 1'b0;
+        mst_vif.bready  <= 1'b0;
         return;
       end
     end
     cyc = 0;
     forever begin
       @(mst_vif.cb);
-      if (mst_vif.cb.bvalid && mst_vif.cb.bready) begin
+      if (mst_vif.cb.bvalid && mst_vif.bready) begin
         chg["bvalid"] = 1'b1;
         break;
       end
       cyc++;
       if (cyc > cfg.timeout_cycles) break;
     end
-    mst_vif.cb.bready <= 1'b0;
+    mst_vif.bready <= 1'b0;
     repeat (2) @(mst_vif.cb);
   endtask
 
   task automatic probe_read(logic [31:0] addr);
     int cyc = 0;
     @(mst_vif.cb);
-    mst_vif.cb.arvalid <= 1'b1;
-    mst_vif.cb.araddr  <= addr;
-    mst_vif.cb.arport  <= 3'b000;
-    mst_vif.cb.rready  <= 1'b1;
+    mst_vif.arvalid <= 1'b1;
+    mst_vif.araddr  <= addr;
+    mst_vif.arport  <= 3'b000;
+    mst_vif.rready  <= 1'b1;
     forever begin
       @(mst_vif.cb);
       if (mst_vif.cb.arready) begin
         // 同 probe_write：以握手观测确认 ready 类信号确实发生跳变
         chg["arready"] = 1'b1;
-        mst_vif.cb.arvalid <= 1'b0;
+        mst_vif.arvalid <= 1'b0;
         break;
       end
       cyc++;
       if (cyc > cfg.timeout_cycles) begin
-        mst_vif.cb.arvalid <= 1'b0;
-        mst_vif.cb.rready  <= 1'b0;
+        mst_vif.arvalid <= 1'b0;
+        mst_vif.rready  <= 1'b0;
         return;
       end
     end
     cyc = 0;
     forever begin
       @(mst_vif.cb);
-      if (mst_vif.cb.rvalid && mst_vif.cb.rready) begin
+      if (mst_vif.cb.rvalid && mst_vif.rready) begin
         chg["rvalid"] = 1'b1;
         chg["rdata"]  = 1'b1;
         rd_val = mst_vif.cb.rdata;
@@ -189,7 +208,7 @@ class vrf_axil_bringup #(
       cyc++;
       if (cyc > cfg.timeout_cycles) break;
     end
-    mst_vif.cb.rready <= 1'b0;
+    mst_vif.rready <= 1'b0;
     repeat (2) @(mst_vif.cb);
   endtask
 
@@ -207,8 +226,9 @@ class vrf_axil_bringup #(
       mtch[sig_names[i]] = 1'b1;
     end
 
-    // 等待复位释放
+    // 等待复位释放并接管主机侧驱动信号
     wait (mst_vif.arstn === 1'b1);
+    init_outputs();
     repeat (4) @(mst_vif.cb);
     sampling = 1;
     fork
@@ -221,26 +241,26 @@ class vrf_axil_bringup #(
     // ---- 步骤 2：走线激励（仅允许自由翻转的信号） ----
     for (i = 0; i < 4; i++) begin
       @(mst_vif.cb);
-      mst_vif.cb.awaddr <= (i % 2) ? 32'hFFFF_FFF0 : 32'h0000_0004;
-      mst_vif.cb.araddr <= (i % 2) ? 32'h0000_0008 : 32'hFFFF_FFF0;
-      mst_vif.cb.wdata  <= (i % 2) ? 32'hAAAA_AAAA : 32'h5555_5555;
-      mst_vif.cb.wstrb  <= (i % 2) ? 4'hA : 4'h5;
-      mst_vif.cb.awport <= (i % 2) ? 3'b101 : 3'b010;
-      mst_vif.cb.arport <= (i % 2) ? 3'b011 : 3'b100;
-      mst_vif.cb.bready <= (i % 2) ? 1'b1 : 1'b0;
-      mst_vif.cb.rready <= (i % 2) ? 1'b1 : 1'b0;
+      mst_vif.awaddr <= (i % 2) ? 32'hFFFF_FFF0 : 32'h0000_0004;
+      mst_vif.araddr <= (i % 2) ? 32'h0000_0008 : 32'hFFFF_FFF0;
+      mst_vif.wdata  <= (i % 2) ? 32'hAAAA_AAAA : 32'h5555_5555;
+      mst_vif.wstrb  <= (i % 2) ? 4'hA : 4'h5;
+      mst_vif.awport <= (i % 2) ? 3'b101 : 3'b010;
+      mst_vif.arport <= (i % 2) ? 3'b011 : 3'b100;
+      mst_vif.bready <= (i % 2) ? 1'b1 : 1'b0;
+      mst_vif.rready <= (i % 2) ? 1'b1 : 1'b0;
     end
 
     // 恢复空闲电平
     @(mst_vif.cb);
-    mst_vif.cb.awaddr <= '0;
-    mst_vif.cb.araddr <= '0;
-    mst_vif.cb.wdata  <= '0;
-    mst_vif.cb.wstrb  <= '0;
-    mst_vif.cb.awport <= '0;
-    mst_vif.cb.arport <= '0;
-    mst_vif.cb.bready <= 1'b0;
-    mst_vif.cb.rready <= 1'b0;
+    mst_vif.awaddr <= '0;
+    mst_vif.araddr <= '0;
+    mst_vif.wdata  <= '0;
+    mst_vif.wstrb  <= '0;
+    mst_vif.awport <= '0;
+    mst_vif.arport <= '0;
+    mst_vif.bready <= 1'b0;
+    mst_vif.rready <= 1'b0;
     repeat (4) @(mst_vif.cb);
 
     // ---- 步骤 3：探针事务（覆盖全部有效/就绪/响应信号） ----

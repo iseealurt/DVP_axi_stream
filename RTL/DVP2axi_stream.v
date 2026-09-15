@@ -144,8 +144,85 @@ module DVP2axi_stream #(
     reg [31:0] reg_dbg_line_cnt;
     reg [31:0] reg_dbg_beat_cnt;
 
-    // Temporary for CTRL write with self-clearing bits
-    reg [31:0] ctrl_new;
+    // =====================================================================
+    // Byte-enable merge helper (32-bit AXI-Lite register map)
+    //   注意：Verilog 要求 function/task 先声明后使用，
+    //   因此这两个函数必须放在下方 ctrl_new_w 等调用点之前。
+    // =====================================================================
+    function [AXI_LITE_DWIDTH-1:0] apply_wstrb;
+        input [AXI_LITE_DWIDTH-1:0] old;
+        input [AXI_LITE_DWIDTH-1:0] new_val;
+        input [AXI_LITE_STRB_WIDTH-1:0] strb;
+        reg [AXI_LITE_DWIDTH-1:0] tmp;
+        integer i;
+        begin
+            tmp = old;
+            for (i = 0; i < AXI_LITE_STRB_WIDTH; i = i + 1) begin
+                if (strb[i]) begin
+                    tmp[i*8 +: 8] = new_val[i*8 +: 8];
+                end
+            end
+            apply_wstrb = tmp;
+        end
+    endfunction
+
+    // Build a byte-enabled write mask for W1C registers.
+    function [AXI_LITE_DWIDTH-1:0] w1c_mask;
+        input [AXI_LITE_DWIDTH-1:0] data;
+        input [AXI_LITE_STRB_WIDTH-1:0] strb;
+        reg [AXI_LITE_DWIDTH-1:0] tmp;
+        integer i;
+        begin
+            tmp = {AXI_LITE_DWIDTH{1'b0}};
+            for (i = 0; i < AXI_LITE_STRB_WIDTH; i = i + 1) begin
+                if (strb[i]) begin
+                    tmp[i*8 +: 8] = data[i*8 +: 8];
+                end
+            end
+            w1c_mask = tmp;
+        end
+    endfunction
+
+    // CTRL 的自清零位（写 1 后自动回 0）：[1]=SOFT_RST [4]=CLR_CNT [5]=CLR_FIFO
+    // 位定义只写在这里：自清零掩码与下方 CTRL 写动作块都引用这些常量，避免两处手写失步
+    localparam CTRL_BIT_SOFT_RST = 1;
+    localparam CTRL_BIT_CLR_CNT  = 4;
+    localparam CTRL_BIT_CLR_FIFO = 5;
+
+    // CTRL 的下一拍值由组合逻辑给出（字节选通合并 + 自清零位清零）：
+    // 在时序块中用阻塞赋值需要模块级变量，综合会推断出非预期的寄存器组，
+    // 因此改为 wire 组合计算，仅保留 reg_ctrl 自身为寄存器。
+    // 自清零位仅在 wstrb[0] 有效时清除，与下方写动作的字节选通条件保持一致。
+    wire [31:0] ctrl_selfclear_mask = wstrb[0]
+        ? ((32'd1 << CTRL_BIT_SOFT_RST) | (32'd1 << CTRL_BIT_CLR_CNT) | (32'd1 << CTRL_BIT_CLR_FIFO))
+        : 32'h0000_0000;
+    wire [31:0] ctrl_new_w = apply_wstrb(reg_ctrl, wdata, wstrb) & ~ctrl_selfclear_mask;
+
+    // 事件 -> 状态位 的唯一定义：下方粘滞置位链与两个同拍事件掩码都引用这些常量，
+    // 避免位映射在多处手写而失步（位定义见 Doc/Reg_v_0_0.md §3.4/§3.6）
+    localparam ERR_BIT_FIFO_OVF   = 0;   // ERR_FLAG : [0]=fifo_overflow [1]=line_err
+    localparam ERR_BIT_LINE       = 1;   //            [2]=frame_err     [3]=axis_err
+    localparam ERR_BIT_FRAME      = 2;   //            [4]=cfg_err
+    localparam ERR_BIT_AXIS       = 3;
+    localparam ERR_BIT_CFG        = 4;
+    localparam INT_BIT_FRAME_DONE = 0;   // INT_STATUS: [0]=frame_done   [1]=fifo_overflow
+    localparam INT_BIT_FIFO_OVF   = 1;   //             [2]=line_err     [3]=frame_err
+    localparam INT_BIT_LINE       = 2;   //             [4]=axis_err
+    localparam INT_BIT_FRAME      = 3;
+    localparam INT_BIT_AXIS       = 4;
+
+    // 同拍硬件事件掩码：用于把「与写操作同拍发生的事件」合并进清除结果，
+    // 避免后续整向量赋值把同拍事件静默丢弃（粘滞事件丢失）
+    wire [31:0] err_event_mask = ({31'b0, fifo_overflow_event} << ERR_BIT_FIFO_OVF)
+                               | ({31'b0, line_err_event}      << ERR_BIT_LINE)
+                               | ({31'b0, frame_err_event}     << ERR_BIT_FRAME)
+                               | ({31'b0, axis_err_event}      << ERR_BIT_AXIS)
+                               | ({31'b0, cfg_err_event}       << ERR_BIT_CFG);
+    wire [31:0] int_event_mask = ({31'b0, frame_done_event}    << INT_BIT_FRAME_DONE)
+                               | ({31'b0, fifo_overflow_event}  << INT_BIT_FIFO_OVF)
+                               | ({31'b0, line_err_event}       << INT_BIT_LINE)
+                               | ({31'b0, frame_err_event}      << INT_BIT_FRAME)
+                               | ({31'b0, axis_err_event}       << INT_BIT_AXIS);
 
     wire [31:0] reg_status;
     wire [31:0] reg_fifo_status;
@@ -191,6 +268,8 @@ module DVP2axi_stream #(
     assign awready = axi_wr;
     assign wready  = axi_wr;
     assign bid     = {AXI_ID_WIDTH{1'b0}};
+    // 说明：当前实现所有写访问均返回 OKAY，包括未映射地址与只读寄存器写（均被忽略）。
+    //       如需错误上报，可在 !wr_hit 或对只读寄存器写时改为返回 SLVERR(2'b10)。
     assign bresp   = 2'b00;
     assign bvalid  = (wr_state == S_WR_RESP);
 
@@ -228,6 +307,8 @@ module DVP2axi_stream #(
 
     assign arready = axi_rd;
     assign rid     = {AXI_ID_WIDTH{1'b0}};
+    // 说明：当前实现所有读访问均返回 OKAY，包括未映射地址（读回 0）。
+    //       如需错误上报，可在 !rd_hit 时改为返回 DECERR(2'b11)。
     assign rresp   = 2'b00;
     assign rvalid  = (rd_state == S_RD_DATA);
     assign rdata   = rdata_reg;
@@ -292,43 +373,6 @@ module DVP2axi_stream #(
     end
 
     // =====================================================================
-    // Byte-enable merge helper (32-bit AXI-Lite register map)
-    // =====================================================================
-    function [AXI_LITE_DWIDTH-1:0] apply_wstrb;
-        input [AXI_LITE_DWIDTH-1:0] old;
-        input [AXI_LITE_DWIDTH-1:0] new_val;
-        input [AXI_LITE_STRB_WIDTH-1:0] strb;
-        reg [AXI_LITE_DWIDTH-1:0] tmp;
-        integer i;
-        begin
-            tmp = old;
-            for (i = 0; i < AXI_LITE_STRB_WIDTH; i = i + 1) begin
-                if (strb[i]) begin
-                    tmp[i*8 +: 8] = new_val[i*8 +: 8];
-                end
-            end
-            apply_wstrb = tmp;
-        end
-    endfunction
-
-    // Build a byte-enabled write mask for W1C registers.
-    function [AXI_LITE_DWIDTH-1:0] w1c_mask;
-        input [AXI_LITE_DWIDTH-1:0] data;
-        input [AXI_LITE_STRB_WIDTH-1:0] strb;
-        reg [AXI_LITE_DWIDTH-1:0] tmp;
-        integer i;
-        begin
-            tmp = {AXI_LITE_DWIDTH{1'b0}};
-            for (i = 0; i < AXI_LITE_STRB_WIDTH; i = i + 1) begin
-                if (strb[i]) begin
-                    tmp[i*8 +: 8] = data[i*8 +: 8];
-                end
-            end
-            w1c_mask = tmp;
-        end
-    endfunction
-
-    // =====================================================================
     // Register write logic
     // =====================================================================
     always @(posedge aclk or negedge aresetn) begin
@@ -354,30 +398,17 @@ module DVP2axi_stream #(
             reg_dbg_beat_cnt  <= 32'h0000_0000;
         end else begin
             // -------------------------------------------------------------
-            // 1) Hardware sticky events (placeholders)
+            // 1) Hardware sticky events
+            //    置位统一用 err_event_mask / int_event_mask 完成：
+            //    「事件 → 状态位」的映射只在掩码定义处写一次，第 2、3 节的
+            //    W1C / SOFT_RST / CLR_CNT 也 OR 同一掩码来保留同拍事件，
+            //    因此两者天然同源，不会出现只改一处的失步。
             // -------------------------------------------------------------
+            reg_err_flag   <= reg_err_flag   | err_event_mask;
+            reg_int_status <= reg_int_status | int_event_mask;
+
             if (frame_done_event) begin
-                reg_frame_cnt     <= reg_frame_cnt + 1'b1;
-                reg_int_status[0] <= 1'b1;
-            end
-            if (fifo_overflow_event) begin
-                reg_err_flag[0]   <= 1'b1;
-                reg_int_status[1] <= 1'b1;
-            end
-            if (line_err_event) begin
-                reg_err_flag[1]   <= 1'b1;
-                reg_int_status[2] <= 1'b1;
-            end
-            if (frame_err_event) begin
-                reg_err_flag[2]   <= 1'b1;
-                reg_int_status[3] <= 1'b1;
-            end
-            if (axis_err_event) begin
-                reg_err_flag[3]   <= 1'b1;
-                reg_int_status[4] <= 1'b1;
-            end
-            if (cfg_err_event) begin
-                reg_err_flag[4]   <= 1'b1;
+                reg_frame_cnt <= reg_frame_cnt + 1'b1;   // 事件计数（置位见掩码定义）
             end
             if (fifo_underflow_event) begin
                 // FIFO underflow is only exposed through FIFO_STATUS for now
@@ -385,34 +416,35 @@ module DVP2axi_stream #(
 
             // -------------------------------------------------------------
             // 2) W1C clear for error flag and interrupt status
+            //    写入的位按 W1C 清除，但同拍发生的事件必须保留（否则粘滞事件丢失）
             // -------------------------------------------------------------
             if (axi_wr && wr_hit && wr_addr == ADDR_ERR_FLAG) begin
-                reg_err_flag <= reg_err_flag & ~w1c_mask(wdata, wstrb);
+                reg_err_flag <= (reg_err_flag & ~w1c_mask(wdata, wstrb)) | err_event_mask;
             end
             if (axi_wr && wr_hit && wr_addr == ADDR_INT_STATUS) begin
-                reg_int_status <= reg_int_status & ~w1c_mask(wdata, wstrb);
+                reg_int_status <= (reg_int_status & ~w1c_mask(wdata, wstrb)) | int_event_mask;
             end
 
             // -------------------------------------------------------------
             // 3) CTRL self-clearing write actions
             // -------------------------------------------------------------
             if (axi_wr && wr_hit && wr_addr == ADDR_CTRL) begin
-                if (wdata[1] && wstrb[0]) begin // SOFT_RST
+                if (wdata[CTRL_BIT_SOFT_RST] && wstrb[0]) begin // SOFT_RST
                     reg_frame_cnt    <= 32'h0;
-                    reg_err_flag     <= 32'h0;
-                    reg_int_status   <= 32'h0;
+                    reg_err_flag     <= err_event_mask;   // 清空但保留同拍事件
+                    reg_int_status   <= int_event_mask;   // 清空但保留同拍事件
                     reg_dbg_pix_cnt  <= 32'h0;
                     reg_dbg_line_cnt <= 32'h0;
                     reg_dbg_beat_cnt <= 32'h0;
                 end
-                if (wdata[4] && wstrb[0]) begin // CLR_CNT
+                if (wdata[CTRL_BIT_CLR_CNT] && wstrb[0]) begin // CLR_CNT
                     reg_frame_cnt    <= 32'h0;
-                    reg_err_flag     <= 32'h0;
+                    reg_err_flag     <= err_event_mask;   // 清空但保留同拍事件
                     reg_dbg_pix_cnt  <= 32'h0;
                     reg_dbg_line_cnt <= 32'h0;
                     reg_dbg_beat_cnt <= 32'h0;
                 end
-                if (wdata[5] && wstrb[0]) begin // CLR_FIFO: no FIFO implemented yet
+                if (wdata[CTRL_BIT_CLR_FIFO] && wstrb[0]) begin // CLR_FIFO: no FIFO implemented yet
                     // TODO: clear FIFO pointers when FIFO is added
                 end
             end
@@ -423,11 +455,7 @@ module DVP2axi_stream #(
             if (axi_wr && wr_hit) begin
                 case (wr_addr)
                     ADDR_CTRL: begin
-                        ctrl_new = apply_wstrb(reg_ctrl, wdata, wstrb);
-                        ctrl_new[1] = 1'b0;
-                        ctrl_new[4] = 1'b0;
-                        ctrl_new[5] = 1'b0;
-                        reg_ctrl <= ctrl_new;
+                        reg_ctrl <= ctrl_new_w;
                     end
                     ADDR_INT_EN: begin
                         reg_int_en <= apply_wstrb(reg_int_en, wdata, wstrb);

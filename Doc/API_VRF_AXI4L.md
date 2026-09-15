@@ -19,15 +19,21 @@
 ### 1.1 编译
 
 ```
-vlog -mfcu -sv -work work +define+<BIND_MODE> -f bench/scripts/filelist.f
+vlog -mfcu -cuname <test>_cu -sv -work <lib> +define+<BIND_MODE> -f bench/scripts/filelist.f
 ```
+
+| 项 | 说明 |
+|---|---|
+| `-mfcu` | **必须**：接口位于 `$unit` 作用域，需与 package 处于同一编译单元 |
+| `-cuname` | **建议**：为多文件编译单元命名，保证编译单元作用域的 `bind` 一定参与 elaboration |
+| `-work <lib>` | 每个用例独立工作库：`work_demo`（库自测）、`work_dvp2axi`（接入示例），避免不同 `-define` 编译出的同名单元互相覆盖 |
 
 `<BIND_MODE>` 用于选择协议检查器的 bind 目标（避免未实例化目标产生未解析引用）：
 
-| 被测对端 | 宏定义 |
-|---|---|
-| 从机参考模型（库自测） | `+define+VRF_AXIL_BIND_REF` |
-| DVP2axi_stream | `+define+VRF_AXIL_BIND_DVP2AXI` |
+| 被测对端 | 宏定义 | 工作库 |
+|---|---|---|
+| 从机参考模型（库自测） | `+define+VRF_AXIL_BIND_REF` | `work_demo` |
+| DVP2axi_stream | `+define+VRF_AXIL_BIND_DVP2AXI` | `work_dvp2axi` |
 
 ### 1.2 使用方式
 
@@ -47,15 +53,25 @@ import vrf_axil_pkg::*;
 | `vrf_axil_slv_if #(AW, DW, ID)` | 从机视角：从机参考模型驱动响应、采样请求 | 响应为 output，请求为 input |
 | `vrf_axil_mnt_if #(AW, DW, ID)` | 监视视角：纯观测 | 全部 input |
 
-三者均提供时钟块 `cb`（`@(posedge aclk)`），用法：
+三者均提供时钟块 `cb`（`@(posedge aclk)`），**cb 只声明 input**，仅用于采样与提供时钟沿事件。
 
-```
-@(mst_vif.cb);                       // 等待一个时钟沿
-mst_vif.cb.awvalid <= 1'b1;          // 驱动请求（时钟块输出，无竞争）
-if (mst_vif.cb.awready) ...          // 采样响应（时钟块输入，1step 前采样）
-```
+驱动与采样约定（**必须遵守**，否则会在握手当拍取到错误相位）：
 
-端口：`aclk`、`arstn`。
+| 信号来源 | 读法 | 示例 |
+|---|---|---|
+| 自己驱动的信号 | 直接读接口变量（本拍前沿值） | `if (mst_vif.awvalid && mst_vif.cb.awready)` |
+| 被测/对端驱动的信号 | **必须**用时钟块采样（`#1step` 取前沿值） | `mst_vif.cb.awready` |
+| 驱动 | 直接赋值，在 `@(cb)` 唤醒之后执行 | `mst_vif.awvalid <= 1'b1;` |
+
+原因：对端信号经 `assign` 连到接口变量上，**组合型 ready/valid 会在握手当拍被对端更新为后沿值**，
+直读接口变量会取到后沿值而漏判握手；时钟块以 `#1step` 采样取到的才是前沿值。
+
+驱动信号归属（接口内不写初值，无多进程驱动）：
+
+| 侧别 | 信号 | 独占者 |
+|---|---|---|
+| 主机侧 | `awvalid/awaddr/awport/wvalid/wdata/wstrb/bready/arvalid/araddr/arport/rready` | `vrf_axil_bringup`（自检阶段）→ `vrf_axil_driver`（自检之后） |
+| 从机侧 | `awready/wready/bvalid/bid/bresp/arready/rvalid/rdata/rresp/rid` | `vrf_axil_slv_ref` |
 
 ### 2.2 通配符自动连接挂钩宏
 
@@ -271,6 +287,11 @@ vrf_axil_slv_ref #(AW=32, DW=32, ID=4, RDY_DLY_MIN=0, RDY_DLY_MAX=2)
 - 标准 AXI4-Lite 从端端口名，可被协议检查器 `bind (.*)` 挂接；
 - 内部以 `vrf_axil_slv_if` 从机视角接口承载协议行为（握手、反压、响应）；
 - 寄存器提交放在单一 `always` 进程内，**同拍先采样读、后提交写**，保证并发同址读写语义确定；
+- 每个从侧信号只有一个写者：`wr_task` / `rd_task` 各管一半，驱动用直接赋值，不使用时钟块输出；
+- 握手 ready 脉冲与响应等待都监听 `aresetn` 的下降沿：复位一旦拉低，当拍即撤销 ready/valid，
+  不会把有效握手残留到复位期间（自检 `p_reset_no_resp` 在复位期间采样沿前值，残留响应会被判为协议违例）；
+- 请求判定使用 `=== 1'b1` 全等比较：采样到的 `awvalid`/`wvalid`/`arvalid` 为 X 时不会被当作有效请求
+  （4 态 `&&`/`!` 会得到 X，被 `while` 当成「假」从而误接受不存在的请求）；
 - 寄存器映射见 `vrf_axil_regmodel::build_ref_slave_map()`；
 - 未映射/保留地址：读返回 0，写被忽略。
 
@@ -430,6 +451,14 @@ env.report();
 
 通过/失败次数累计到 `vrf_axil_ctrl::assert_chk_cnt` / `assert_fail_cnt`。
 
+补充说明：
+
+- 超时门限统一取自 `vrf_axil_ctrl::timeout_cycles`（由 `cfg.timeout_cycles` 注入，与 driver/bringup/monitor 同源），
+  检查器本身不提供兜底参数；`0` 表示「第一个停滞周期即报错」，语义与其他组件一致。
+- 请求/响应计数（`aw_cnt` / `w_cnt` / `ar_cnt`）只在复位时清零：它描述的是**总线状态**，
+  若在检查挂起（`gating`）期间清零，恢复检查后到达的响应会被误判为「无请求的响应」。
+  握手停滞计数则在复位或挂起时清零（挂起会引入非真实停滞，恢复后不应立刻误报超时）。
+
 ---
 
 ## 16. 全局控制类
@@ -463,14 +492,19 @@ env.report();
 | 文件 | 用途 |
 |---|---|
 | `bench/scripts/filelist.f` | 编译文件列表（顺序固定，必须配合 `-mfcu`） |
-| `bench/scripts/run.ps1` | 一键编译 + 仿真 + 报告定位 |
+| `bench/scripts/check_env.ps1` | 前置条件检查：PowerShell 版本、ModelSim 工具（vlib/vlog/vsim，vcover 可选）、工程文件、目录可写（日志目录 + 项目根目录） |
+| `bench/scripts/run.ps1` | 一键编译 + 仿真 + 报告定位；退出码同时落盘到 `<LogDir>/<Test>.exit` |
 | `bench/scripts/sim.do` | ModelSim 脚本（可在交互模式 `do` 执行） |
-| `bench/scripts/regression.ps1` | 批量回归：多种子、日志隔离、报告解析、通过率汇总 |
+| `bench/scripts/regression.ps1` | 批量回归：多种子、日志隔离、超时保护、报告解析、通过率汇总 |
 | `Makefile` | 统一入口（内部调用 PowerShell 脚本，避免双份逻辑漂移） |
+| `.gitignore` | 排除仿真生成物与日志 |
 
 ### 17.2 常用命令
 
 ```powershell
+# 前置条件检查
+powershell -File bench/scripts/check_env.ps1
+
 # 库自测（从机参考模型）
 powershell -File bench/scripts/run.ps1 -Test tb_vrf_axil_demo
 
@@ -486,9 +520,29 @@ powershell -File bench/scripts/run.ps1 -Test tb_dvp2ax_stream -Cover
 # 故障注入自测（验证失败复现与错误报告链路）
 powershell -File bench/scripts/run.ps1 -Test tb_vrf_axil_demo -Nrand 0 -Fault
 
-# 批量回归
-powershell -File bench/scripts/regression.ps1 -Seeds "1,2,3,4,5"
+# 批量回归（可选 -TimeoutSec 单轮超时，默认 900 秒）
+powershell -File bench/scripts/regression.ps1 -Seeds "1,2,3,4,5" -TimeoutSec 900
+
+# 指定日志基目录（回归输出落在 <LogDir>/regression/run_<时间戳>_<pid>/）
+powershell -File bench/scripts/regression.ps1 -Seeds "1,2,3" -LogDir log_alt
 ```
+
+> 注意：`-Seed` / `-Nrand` 只有**显式传参**才会下发对应 plusarg，因此 `-Seed 0`、`-Nrand 0` 均为有效取值；
+> 该规则在 `regression.ps1` 中同样成立（它仅在自身收到 `-Nrand` 时才转发给每一轮），
+> Makefile 侧同样按「命令行/环境是否显式给出」决定是否转发。两者均不接受负数。
+>
+> 注意：`-LogDir` 只拒绝会破坏 Tcl 花括号引用或子进程参数引用的字符（`{ }`、双引号、换行），
+> **允许含空格的路径**（工程位于 `C:\Users\John Doe\...` 这类目录时仍可用）；
+> 相对路径以项目根目录为基准，绝对路径按原样使用；目录按字面路径创建（通配字符如 `log[1]` 不会
+> 被展开成别的目录）。
+>
+> 注意：工作库固定在项目根目录（`work_demo` / `work_dvp2axi`）。为避免并发运行同一用例时
+> 互相覆盖库、互删库锁，`run.ps1` 会在**工程根目录**写一个占用标记 `.vrf_axil_owner_<lib>`
+> （记录 PID，原子创建）：
+> - 标记对应进程仍在运行时**直接以退出码 3 拒绝**；进程已结束的陈旧标记会被接管；
+> - `-Clean` 会先确认 `work` / `work_demo` / `work_dvp2axi` 都没有被其他存活运行占用，再执行删除。
+>
+> 工作库是否已初始化以 vlib 生成的 `<lib>/_info` 为准，空目录不会被当成有效库。
 
 ### 17.3 仿真参数（plusargs）
 
@@ -509,6 +563,16 @@ powershell -File bench/scripts/regression.ps1 -Seeds "1,2,3,4,5"
 | `<log_dir>/<test>_wide_trace.txt` | 失败复现时的逐拍宽监视波形文本 |
 | `<log_dir>/<test>.ucdb` | 覆盖率数据库（`-Cover` 时生成） |
 | `<log_dir>/<test>.log` | 仿真器转录日志 |
+| `<log_dir>/<test>.exit` | run.ps1 的退出码（供回归脚本稳定读取） |
+| `<log_dir>/regression/run_<时间戳>_<pid>/summary.txt` | 批量回归汇总（含每轮退出码、检查项、失败项、结论） |
+
+> `<log_dir>` 可被 `-LogDir`（脚本）或 `OUT=`（Makefile）覆写，回归的基目录同样跟随该参数。
+> `run.ps1` 退出码：0 成功；2 参数/环境错误；3 工作库被其他运行占用 / 工作库或日志目录创建失败；
+> 4 编译失败；5 未找到 ModelSim 工具（vlib/vlog/vsim）；6 未生成报告。仿真结论以报告中的
+> `SIMULATION PASSED/FAILED` 为准（回归脚本同时校验退出码与报告）。
+>
+> 回归为每一轮启动的子进程会沿用**当前宿主解释器**（如父进程跑在 `pwsh` 下就用 `pwsh`），
+> 并统一加 `-NoProfile`，避免用户 profile 影响子进程。
 
 ---
 

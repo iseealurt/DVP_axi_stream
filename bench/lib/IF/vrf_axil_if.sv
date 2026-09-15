@@ -6,8 +6,25 @@
 //   vrf_axil_slv_if : 从机视角，驱动响应、采样请求（从机参考模型使用）
 //   vrf_axil_mnt_if : 监视视角，全部为输入（monitor / 上电检查使用）
 //
+// 驱动与采样约定（重要）：
+//   1) 时钟块 cb 只声明 input，仅用于「采样 + 提供时钟沿事件」，不作为驱动通路；
+//      否则同一信号会同时被时钟块输出与直接赋值驱动。
+//   2) 接口内不写初值（无 initial），避免与使用者形成多进程驱动。
+//      各侧驱动信号的归属：
+//        主机侧（awvalid/awaddr/awport/wvalid/wdata/wstrb/bready/arvalid/araddr/arport/rready）
+//          —— 由 vrf_axil_bringup（上电自检阶段）与 vrf_axil_driver（自检之后）顺序独占；
+//        从机侧（awready/wready/bvalid/bid/bresp/arready/rvalid/rdata/rresp/rid）
+//          —— 由 vrf_axil_slv_ref 独占。
+//   3) 驱动一律用直接赋值（`mst_vif.awvalid <= 1'b1;`），在 `@(mst_vif.cb)` 唤醒之后执行，
+//      落在 NBA 区，与被测 DUT 的同沿采样无竞争。
+//   4) 采样必须区分来源，否则会在握手当拍取到错误的相位：
+//        - 自己驱动的信号：直接读接口变量（如 `mst_vif.awvalid`）→ 本拍前沿值；
+//        - 被测/对端驱动的信号：必须用时钟块采样（如 `mst_vif.cb.awready`）→ 前沿值。
+//      原因：对端信号经 `assign` 连到接口变量上，组合型 ready/valid 会在握手当拍
+//      被对端更新为后沿值，直读会取到后沿值而漏判握手；时钟块以 #1step 采样取前沿值。
+//
 // 通配符自动连接说明：
-//   SystemVerilog 的 `bind` 只能观测目标模块内部信号，无法驱动其输入端口，
+//   SystemVerilog 的 `bind` 只能观测目标模块内部信号、无法驱动其输入端口，
 //   因此本库采用「挂具模块 + 端口按名通配符连接」方案：
 //     1) 在挂具模块中展开 `VRF_AXIL_HOOK_DECL(AW, DW, ID)`，
 //        它声明与 DUT 端口同名的 AXI4-Lite 信号、实例化 mst/mnt 接口、
@@ -58,27 +75,11 @@ interface vrf_axil_mst_if #(
   logic [1:0]          rresp;
   logic [IDWIDTH-1:0]  rid;
 
+  // 仅用于采样与时钟沿同步；驱动见文件头说明
   clocking cb @(posedge aclk);
-    input  arstn;
-    input  awready, wready, bvalid, bid, bresp, arready, rvalid, rdata, rresp, rid;
-    output awvalid, awaddr, awport, wvalid, wdata, wstrb, bready,
-           arvalid, araddr, arport, rready;
+    input arstn;
+    input awready, wready, bvalid, bid, bresp, arready, rvalid, rdata, rresp, rid;
   endclocking
-
-  // 主机侧驱动信号初值，避免上电 X 态
-  initial begin
-    awvalid = 1'b0;
-    awaddr  = '0;
-    awport  = '0;
-    wvalid  = 1'b0;
-    wdata   = '0;
-    wstrb   = '0;
-    bready  = 1'b0;
-    arvalid = 1'b0;
-    araddr  = '0;
-    arport  = '0;
-    rready  = 1'b0;
-  end
 endinterface
 
 // -----------------------------------------------------------------------------
@@ -121,25 +122,10 @@ interface vrf_axil_slv_if #(
   logic [IDWIDTH-1:0]  rid;
 
   clocking cb @(posedge aclk);
-    input  arstn;
-    input  awvalid, awaddr, awport, wvalid, wdata, wstrb, bready,
-           arvalid, araddr, arport, rready;
-    output awready, wready, bvalid, bid, bresp, arready, rvalid, rdata, rresp, rid;
+    input arstn;
+    input awvalid, awaddr, awport, wvalid, wdata, wstrb, bready,
+          arvalid, araddr, arport, rready;
   endclocking
-
-  // 从机侧驱动信号初值
-  initial begin
-    awready = 1'b0;
-    wready  = 1'b0;
-    bvalid  = 1'b0;
-    bid     = '0;
-    bresp   = 2'b00;
-    arready = 1'b0;
-    rvalid  = 1'b0;
-    rdata   = '0;
-    rresp   = 2'b00;
-    rid     = '0;
-  end
 endinterface
 
 // -----------------------------------------------------------------------------
@@ -194,7 +180,7 @@ endinterface
 //   在被测模块的挂具中展开，完成：
 //     - 声明与 DUT 端口同名的 AXI4-Lite 信号（供 `DUT u_dut (.*);` 自动连接）
 //     - 实例化 mst/mnt 接口并按名双向挂钩
-//     - 把接口句柄发布到全局连接表
+//     - 把接口句柄发布到全局连接表（检测重复发布，避免句柄被静默覆盖）
 //   前置条件：挂具模块内存在 aclk / aresetn 两个时钟复位信号
 // -----------------------------------------------------------------------------
 `define VRF_AXIL_HOOK_DECL(AW, DW, ID)                                                    \
@@ -273,9 +259,15 @@ endinterface
   assign mnt_vif.rresp   = rresp;                                                        \
   assign mnt_vif.rid     = rid;                                                          \
                                                                                           \
-  /* 发布接口句柄，供环境/驱动器/监视器统一取用 */                                       \
+  /* 发布接口句柄；重复发布视为连接冲突，显式报错而非静默覆盖 */                         \
   initial begin                                                                          \
-    vrf_axil_conn_h #(AW, DW, ID)::mst       = mst_vif;                                  \
-    vrf_axil_conn_h #(AW, DW, ID)::mnt       = mnt_vif;                                  \
-    vrf_axil_conn_h #(AW, DW, ID)::published = 1'b1;                                     \
+    if (vrf_axil_conn_h #(AW, DW, ID)::published === 1'b1) begin                          \
+      vrf_axil_conn_h #(AW, DW, ID)::conflict = 1'b1;                                    \
+      $display("[%0t][VRF_AXIL][ERROR] 检测到重复的挂具实例（特化 %0d/%0d/%0d）：后一个实例的接口句柄被丢弃，仍保留最先发布的句柄，通配符自动连接存在冲突", \
+               $time, AW, DW, ID);                                                       \
+    end else begin                                                                        \
+      vrf_axil_conn_h #(AW, DW, ID)::mst       = mst_vif;                                \
+      vrf_axil_conn_h #(AW, DW, ID)::mnt       = mnt_vif;                                \
+      vrf_axil_conn_h #(AW, DW, ID)::published = 1'b1;                                   \
+    end                                                                                   \
   end

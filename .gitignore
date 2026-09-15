@@ -1,0 +1,49 @@
+# =============================================================================
+# VRF_AXI4L 工程 .gitignore
+#   仿真工具生成物、日志与报告不入库：
+#     - ModelSim/QuestaSim 工作库（含机器相关的绝对路径、哈希与厂商横幅）
+#     - 仿真转录与验证报告（可按 bench/scripts 中的脚本随时重新生成）
+#   版本控制只保留：RTL、验证库源码、用例、脚本、文档
+# =============================================================================
+
+# ---------- 仿真工作库（生成物） ----------
+work/
+work_*/
+bench/work/
+modelsim.ini
+_info
+_vmake
+*.qdb
+*.qpg
+*.qtl
+*.qdf
+
+# ---------- 仿真波形与覆盖率数据库 ----------
+*.vst
+*.wlf
+*.ucdb
+*.acdb
+*.cov
+transcript
+bench/transcript
+
+# ---------- 日志与报告（生成物） ----------
+log/
+*.log
+repro_seed.txt
+# -LogDir / OUT 被改到 log/ 之外时，这些按脚本命名规则生成的报告同样不应入库
+*.exit
+*_report.txt
+*_err.txt
+*_log.txt
+*_wide_trace.txt
+summary.txt
+# run.ps1 的工作库所有权标记 / check_env.ps1 的写权限探针（瞬时文件，兜底忽略）
+.vrf_axil_*
+
+# ---------- 编辑器/系统 ----------
+.vscode/
+.systemverilog/
+*.bak
+Thumbs.db
+desktop.ini

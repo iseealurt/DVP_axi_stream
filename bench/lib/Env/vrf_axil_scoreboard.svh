@@ -229,8 +229,8 @@ class vrf_axil_scoreboard #(
     n_repro++;
     if (mon_h != null) mon_h.set_wide_mode(1'b1);
     $display("[%0t][VRF_AXIL][REPRO] 失败事务已回注 sequencer 复现，并开启宽监视模式", $time);
-    // 记录随机种子，供脚本以相同种子整用例回放
-    fd = $fopen(cfg.seed_file, "w");
+    // 记录随机种子，供脚本以相同种子整用例回放（落在日志目录，避免污染工程根目录）
+    fd = $fopen($sformatf("%s/%s", cfg.log_dir, cfg.seed_file), "w");
     if (fd != 0) begin
       $fdisplay(fd, "%0d", cfg.seed);
       $fclose(fd);

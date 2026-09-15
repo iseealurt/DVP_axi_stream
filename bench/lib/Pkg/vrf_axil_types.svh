@@ -32,12 +32,14 @@ class vrf_axil_conn_h #(
   static virtual vrf_axil_slv_if #(AWIDTH, DWIDTH, IDWIDTH) slv = null;
   static virtual vrf_axil_mnt_if #(AWIDTH, DWIDTH, IDWIDTH) mnt = null;
   static bit published = 1'b0;
+  static bit conflict  = 1'b0;   // 1：出现过重复发布（同特化多个挂具实例）
 
   static function void clear();
     mst = null;
     slv = null;
     mnt = null;
     published = 1'b0;
+    conflict  = 1'b0;
   endfunction
 endclass
 

@@ -5,13 +5,16 @@
 //     通过 `bind <dut> vrf_axil_chk u_vrf_axil_chk (.*);` 挂接到 DUT，不侵入 RTL
 //   - 检查项：
 //       1) 复位期间不得有响应
-//       2) 总线信号不得出现 X/Z
+//       2) 总线信号不得出现 X/Z（握手/控制信号常检，载荷按对应 valid 门控）
 //       3) 握手稳定性：valid 拉高后载荷保持不变，直至对应 ready 到来
-//       4) 通道协议：无请求不得有响应（B/R 不得凭空出现）
+//       4) 通道协议：无请求不得有响应（AW 与 W 独立计数，互不要求同拍）
 //       5) 响应合法性：resp 只能取 OKAY/SLVERR/DECERR，AXI4-Lite 不得出现 EXOKAY
-//       6) 超时检测：握手停滞超过门限即报错
+//       6) 超时检测：握手停滞超过门限即报错（门限取自 cfg.timeout_cycles，语义与诊断值逐拍对齐）
 //   - 属性按 formal 友好的形式编写，可直接被形式化工具复用
 //   - 通过/失败次数累计到 vrf_axil_ctrl，供报告统计
+//   - 请求/响应计数只在复位时清零：它是「总线状态」而非「检查状态」，
+//     一旦在挂起期间清零，恢复检查后到达的响应会被误判为「无请求的响应」；
+//     握手停滞计数在复位或挂起时清零（挂起会引入非真实停滞，恢复后不应立刻误报超时）
 // =============================================================================
 module vrf_axil_chk #(
   parameter int AWIDTH  = 32,
@@ -47,37 +50,57 @@ module vrf_axil_chk #(
   // 检查总闸：连通性自检期间与显式关闭检查时全部挂起
   wire gating = vrf_axil_ctrl::bringup_active || !vrf_axil_ctrl::checks_enable;
 
-  // ---------------------------------------------------------------------
-  // 事务挂起计数：无请求不得有响应
-  // ---------------------------------------------------------------------
-  int  wr_pend = 0;
-  int  rd_pend = 0;
-  bit  wr_inc, wr_dec, rd_inc, rd_dec;
+  // 超时门限统一取自 vrf_axil_ctrl::timeout_cycles（由 cfg 注入，与 driver/bringup/monitor 同源）：
+  // 0 表示「第一个停滞周期即报错」，语义与其他组件一致，因此不再提供模块级兜底参数
+  function automatic int timeout_limit();
+    return vrf_axil_ctrl::timeout_cycles;
+  endfunction
 
-  assign wr_inc = awvalid && awready && wvalid && wready;
-  assign wr_dec = bvalid && bready;
-  assign rd_inc = arvalid && arready;
-  assign rd_dec = rvalid && rready;
+  // ---------------------------------------------------------------------
+  // 请求/响应挂起计数
+  //   AXI4-Lite 的 AW 与 W 是独立通道，握手可发生在不同周期，
+  //   因此必须分别累计；B 响应只在 AW 与 W 均已收到时才允许出现。
+  //   计数器饱和在 0，避免非法响应把计数打成负数后连续漏检。
+  // ---------------------------------------------------------------------
+  int  aw_cnt = 0;   // 已接受的 AW 数减去已响应的 B 数
+  int  w_cnt  = 0;   // 已接受的 W  数减去已响应的 B 数
+  int  ar_cnt = 0;   // 已接受的 AR 数减去已完成的 R 数
+  bit  aw_inc, aw_dec, w_inc, w_dec, ar_inc, ar_dec;
+
+  assign aw_inc = awvalid && awready;
+  assign aw_dec = bvalid && bready;
+  assign w_inc  = wvalid && wready;
+  assign w_dec  = bvalid && bready;
+  assign ar_inc = arvalid && arready;
+  assign ar_dec = rvalid && rready;
 
   always @(posedge aclk or negedge aresetn) begin
     if (!aresetn) begin
-      wr_pend <= 0;
-      rd_pend <= 0;
+      aw_cnt <= 0;
+      w_cnt  <= 0;
+      ar_cnt <= 0;
     end else begin
-      if (wr_inc && !wr_dec)      wr_pend <= wr_pend + 1;
-      else if (!wr_inc && wr_dec) wr_pend <= wr_pend - 1;
-      if (rd_inc && !rd_dec)      rd_pend <= rd_pend + 1;
-      else if (!rd_inc && rd_dec) rd_pend <= rd_pend - 1;
+      if (aw_inc && !aw_dec)      aw_cnt <= aw_cnt + 1;
+      else if (!aw_inc && aw_dec) aw_cnt <= (aw_cnt > 0) ? aw_cnt - 1 : 0;
+
+      if (w_inc && !w_dec)        w_cnt <= w_cnt + 1;
+      else if (!w_inc && w_dec)   w_cnt <= (w_cnt > 0) ? w_cnt - 1 : 0;
+
+      if (ar_inc && !ar_dec)      ar_cnt <= ar_cnt + 1;
+      else if (!ar_inc && ar_dec) ar_cnt <= (ar_cnt > 0) ? ar_cnt - 1 : 0;
     end
   end
 
   // ---------------------------------------------------------------------
   // 握手停滞计数：超时检测
+  //   采样时刻 aw_stuck 记录的是「此前已连续停滞的周期数」，
+  //   本拍停滞对应的真实停滞长度 = aw_stuck + 1，
+  //   比较与诊断统一使用 aw_stuck + 1，保证门限语义与报错数值一致。
   // ---------------------------------------------------------------------
   int aw_stuck = 0, w_stuck = 0, ar_stuck = 0, b_stuck = 0, r_stuck = 0;
 
   always @(posedge aclk or negedge aresetn) begin
-    if (!aresetn) begin
+    if (!aresetn || gating) begin
       aw_stuck <= 0; w_stuck <= 0; ar_stuck <= 0; b_stuck <= 0; r_stuck <= 0;
     end else begin
       aw_stuck <= (awvalid && !awready) ? aw_stuck + 1 : 0;
@@ -101,19 +124,26 @@ module vrf_axil_chk #(
                $error("[VRF_AXIL][CHK] 复位期间出现 B/R 响应"); end
 
   // ---------------------------------------------------------------------
-  // 2) 总线信号不得出现 X/Z
+  // 2) X/Z 检查
+  //    握手/控制信号任何时刻不得为 X/Z；
+  //    载荷只在对应 valid 有效时才要求已知（AXI 允许 idle 时载荷未定义）。
   // ---------------------------------------------------------------------
   property p_no_xz;
     @(posedge aclk) disable iff (gating)
+    // 握手/控制信号：常检
     !$isunknown({awvalid, awready, wvalid, wready, bvalid, bready,
-                 arvalid, arready, rvalid, rready,
-                 awaddr, araddr, wdata, wstrb, rdata, bresp, rresp, bid, rid,
-                 awport, arport});
+                 arvalid, arready, rvalid, rready})
+    // 载荷：按 valid 门控
+    && (!awvalid || !$isunknown({awaddr, awport}))
+    && (!wvalid  || !$isunknown({wdata, wstrb}))
+    && (!bvalid  || !$isunknown({bresp, bid}))
+    && (!arvalid || !$isunknown({araddr, arport}))
+    && (!rvalid  || !$isunknown({rdata, rresp, rid}));
   endproperty
   assert property (p_no_xz)
     begin vrf_axil_ctrl::assert_chk_cnt++; end
     else begin vrf_axil_ctrl::assert_fail_cnt++;
-               $error("[VRF_AXIL][CHK] 总线出现 X/Z 未知态"); end
+               $error("[VRF_AXIL][CHK] 总线出现 X/Z 未知态（控制信号或有效载荷）"); end
 
   // ---------------------------------------------------------------------
   // 3) 握手稳定性检查
@@ -168,21 +198,22 @@ module vrf_axil_chk #(
   // ---------------------------------------------------------------------
   property p_b_needs_req;
     @(posedge aclk) disable iff (gating || !aresetn)
-    bvalid |-> (wr_pend > 0);
+    bvalid |-> (aw_cnt > 0 && w_cnt > 0);
   endproperty
   assert property (p_b_needs_req)
     begin vrf_axil_ctrl::assert_chk_cnt++; end
     else begin vrf_axil_ctrl::assert_fail_cnt++;
-               $error("[VRF_AXIL][CHK] 无写请求却出现 B 响应"); end
+               $error("[VRF_AXIL][CHK] 无完整写请求却出现 B 响应（aw_cnt=%0d w_cnt=%0d）",
+                      aw_cnt, w_cnt); end
 
   property p_r_needs_req;
     @(posedge aclk) disable iff (gating || !aresetn)
-    rvalid |-> (rd_pend > 0);
+    rvalid |-> (ar_cnt > 0);
   endproperty
   assert property (p_r_needs_req)
     begin vrf_axil_ctrl::assert_chk_cnt++; end
     else begin vrf_axil_ctrl::assert_fail_cnt++;
-               $error("[VRF_AXIL][CHK] 无读请求却出现 R 响应"); end
+               $error("[VRF_AXIL][CHK] 无读请求却出现 R 响应（ar_cnt=%0d）", ar_cnt); end
 
   // ---------------------------------------------------------------------
   // 5) 响应合法性
@@ -206,52 +237,57 @@ module vrf_axil_chk #(
                $error("[VRF_AXIL][CHK] B 响应编码非法（AXI4-Lite 仅允许 OKAY/SLVERR/DECERR）"); end
 
   // ---------------------------------------------------------------------
-  // 6) 超时检测
+  // 6) 超时检测（停滞长度 = 计数 + 1，与诊断值一致）
   // ---------------------------------------------------------------------
   property p_aw_timeout;
     @(posedge aclk) disable iff (gating || !aresetn)
-    (awvalid && !awready) |-> (aw_stuck < vrf_axil_ctrl::timeout_cycles);
+    (awvalid && !awready) |-> ((aw_stuck + 1) <= timeout_limit());
   endproperty
   assert property (p_aw_timeout)
     begin vrf_axil_ctrl::assert_chk_cnt++; end
     else begin vrf_axil_ctrl::assert_fail_cnt++;
-               $error("[VRF_AXIL][CHK] AW 握手超时（%0d 周期未收到 awready）", aw_stuck); end
+               $error("[VRF_AXIL][CHK] AW 握手超时（已停滞 %0d 周期未收到 awready）",
+                      aw_stuck + 1); end
 
   property p_w_timeout;
     @(posedge aclk) disable iff (gating || !aresetn)
-    (wvalid && !wready) |-> (w_stuck < vrf_axil_ctrl::timeout_cycles);
+    (wvalid && !wready) |-> ((w_stuck + 1) <= timeout_limit());
   endproperty
   assert property (p_w_timeout)
     begin vrf_axil_ctrl::assert_chk_cnt++; end
     else begin vrf_axil_ctrl::assert_fail_cnt++;
-               $error("[VRF_AXIL][CHK] W 握手超时（%0d 周期未收到 wready）", w_stuck); end
+               $error("[VRF_AXIL][CHK] W 握手超时（已停滞 %0d 周期未收到 wready）",
+                      w_stuck + 1); end
 
   property p_ar_timeout;
     @(posedge aclk) disable iff (gating || !aresetn)
-    (arvalid && !arready) |-> (ar_stuck < vrf_axil_ctrl::timeout_cycles);
+    (arvalid && !arready) |-> ((ar_stuck + 1) <= timeout_limit());
   endproperty
   assert property (p_ar_timeout)
     begin vrf_axil_ctrl::assert_chk_cnt++; end
     else begin vrf_axil_ctrl::assert_fail_cnt++;
-               $error("[VRF_AXIL][CHK] AR 握手超时（%0d 周期未收到 arready）", ar_stuck); end
+               $error("[VRF_AXIL][CHK] AR 握手超时（已停滞 %0d 周期未收到 arready）",
+                      ar_stuck + 1); end
 
   property p_b_timeout;
     @(posedge aclk) disable iff (gating || !aresetn)
-    (bvalid && !bready) |-> (b_stuck < vrf_axil_ctrl::timeout_cycles);
+    (bvalid && !bready) |-> ((b_stuck + 1) <= timeout_limit());
   endproperty
   assert property (p_b_timeout)
     begin vrf_axil_ctrl::assert_chk_cnt++; end
     else begin vrf_axil_ctrl::assert_fail_cnt++;
-               $error("[VRF_AXIL][CHK] B 响应长时间未被接收"); end
+               $error("[VRF_AXIL][CHK] B 响应长时间未被接收（已停滞 %0d 周期）",
+                      b_stuck + 1); end
 
   property p_r_timeout;
     @(posedge aclk) disable iff (gating || !aresetn)
-    (rvalid && !rready) |-> (r_stuck < vrf_axil_ctrl::timeout_cycles);
+    (rvalid && !rready) |-> ((r_stuck + 1) <= timeout_limit());
   endproperty
   assert property (p_r_timeout)
     begin vrf_axil_ctrl::assert_chk_cnt++; end
     else begin vrf_axil_ctrl::assert_fail_cnt++;
-               $error("[VRF_AXIL][CHK] R 响应长时间未被接收"); end
+               $error("[VRF_AXIL][CHK] R 响应长时间未被接收（已停滞 %0d 周期）",
+                      r_stuck + 1); end
 endmodule
 
 // -----------------------------------------------------------------------------

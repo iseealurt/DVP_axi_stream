@@ -13,25 +13,27 @@ if {![info exists NRAND]} { set NRAND 0 }
 if {![info exists COVER]} { set COVER 0 }
 # ------------------------------------------------------------------------
 
-file mkdir log
-catch { file delete -force work/_lock }
-if {[file exists work] == 0} { vlib work }
-
-# 按测试选择协议检查器 bind 目标
+# 按测试选择协议检查器 bind 目标与独立工作库
 if {$TEST eq "tb_vrf_axil_demo"} {
   set BIND_DEF "+define+VRF_AXIL_BIND_REF"
+  set LIB_NAME "work_demo"
 } else {
   set BIND_DEF "+define+VRF_AXIL_BIND_DVP2AXI"
+  set LIB_NAME "work_dvp2axi"
 }
 
-set VLOG_OPTS [list -mfcu -sv -work work $BIND_DEF]
+file mkdir log
+foreach {d} [glob -nocomplain -type d work*] { catch { file delete -force $d/_lock } }
+if {[file exists $LIB_NAME] == 0} { vlib $LIB_NAME }
+
+set VLOG_OPTS [list -mfcu -cuname ${TEST}_cu -sv -work $LIB_NAME $BIND_DEF]
 if {$COVER} { set VLOG_OPTS [concat $VLOG_OPTS [list -cover bcesft]] }
 set VLOG_OPTS [concat $VLOG_OPTS [list -f bench/scripts/filelist.f]]
 
 echo "\[VRF_AXIL\] compile : $TEST  ($BIND_DEF)"
 eval vlog $VLOG_OPTS
 
-set VSIM_OPTS [list -c -l log/$TEST.log work.$TEST]
+set VSIM_OPTS [list -c -l log/$TEST.log $LIB_NAME.$TEST]
 if {$COVER}      { set VSIM_OPTS [concat [list -coverage] $VSIM_OPTS] }
 if {$SEED  != 0} { set VSIM_OPTS [concat $VSIM_OPTS [list +seed=$SEED]] }
 if {$NRAND != 0} { set VSIM_OPTS [concat $VSIM_OPTS [list +n_rand=$NRAND]] }

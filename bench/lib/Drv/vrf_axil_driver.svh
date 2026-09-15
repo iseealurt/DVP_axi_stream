@@ -5,6 +5,11 @@
 //     置零即退化为无延迟的直连驱动
 //   - 读写分别由独立流驱动，允许读事务与写事务在总线上并发
 //   - 握手超时与复位中断均被记录并随事务回传给计分板
+//
+// 驱动方式：直接对接口变量做非阻塞赋值（`mst_vif.awvalid <= ...`），
+//   在 `@(mst_vif.cb)` 唤醒之后执行，落在 NBA 区，
+//   与 DUT 同沿采样无竞争；不使用时钟块输出，避免同一信号多进程驱动。
+//   主机侧驱动信号由本驱动器独占（上电自检阶段由 vrf_axil_bringup 独占）。
 // =============================================================================
 class vrf_axil_driver #(
   parameter int AWIDTH  = VRF_AW,
@@ -42,7 +47,24 @@ class vrf_axil_driver #(
     this.rd_q     = new();
   endfunction
 
+  // 主机侧驱动信号初始化：驱动器接管总线前调用，避免上电 X 态
+  task automatic init_outputs();
+    mst_vif.awvalid <= 1'b0;
+    mst_vif.awaddr  <= '0;
+    mst_vif.awport  <= '0;
+    mst_vif.wvalid  <= 1'b0;
+    mst_vif.wdata   <= '0;
+    mst_vif.wstrb   <= '0;
+    mst_vif.bready  <= 1'b0;
+    mst_vif.arvalid <= 1'b0;
+    mst_vif.araddr  <= '0;
+    mst_vif.arport  <= '0;
+    mst_vif.rready  <= 1'b0;
+    @(mst_vif.cb);
+  endtask
+
   task run();
+    init_outputs();
     fork
       dispatch();
       wr_stream();
@@ -110,25 +132,26 @@ class vrf_axil_driver #(
   task automatic drive_aw(txn_t t, int delay);
     int cyc = 0;
     repeat (delay) @(mst_vif.cb);
-    mst_vif.cb.awvalid <= 1'b1;
-    mst_vif.cb.awaddr  <= t.txn_addr;
-    mst_vif.cb.awport  <= 3'b000;
+    mst_vif.awvalid <= 1'b1;
+    mst_vif.awaddr  <= t.txn_addr;
+    mst_vif.awport  <= 3'b000;
     forever begin
       @(mst_vif.cb);
       if (!mst_vif.arstn) begin
-        mst_vif.cb.awvalid <= 1'b0;
+        mst_vif.awvalid <= 1'b0;
         t.obs_interrupted = 1'b1;
         t.txn_reason      = "AW 握手期间发生复位";
         return;
       end
-      if (mst_vif.cb.awvalid && mst_vif.cb.awready) begin
-        t.obs_addr = mst_vif.cb.awaddr;
-        mst_vif.cb.awvalid <= 1'b0;
+      // 自身驱动信号直读（本拍前沿值），被测信号必须用时钟块采样（前沿值）
+      if (mst_vif.awvalid && mst_vif.cb.awready) begin
+        t.obs_addr = mst_vif.awaddr;
+        mst_vif.awvalid <= 1'b0;
         return;
       end
       cyc++;
       if (cyc > cfg.timeout_cycles) begin
-        mst_vif.cb.awvalid <= 1'b0;
+        mst_vif.awvalid <= 1'b0;
         t.txn_result      = TIMEOUT;
         t.txn_reason      = "AW 握手超时";
         return;
@@ -139,26 +162,26 @@ class vrf_axil_driver #(
   task automatic drive_w(txn_t t, int delay);
     int cyc = 0;
     repeat (delay) @(mst_vif.cb);
-    mst_vif.cb.wvalid <= 1'b1;
-    mst_vif.cb.wdata  <= t.txn_data;
-    mst_vif.cb.wstrb  <= t.txn_strb;
+    mst_vif.wvalid <= 1'b1;
+    mst_vif.wdata  <= t.txn_data;
+    mst_vif.wstrb  <= t.txn_strb;
     forever begin
       @(mst_vif.cb);
       if (!mst_vif.arstn) begin
-        mst_vif.cb.wvalid <= 1'b0;
+        mst_vif.wvalid <= 1'b0;
         t.obs_interrupted = 1'b1;
         t.txn_reason      = "W 握手期间发生复位";
         return;
       end
-      if (mst_vif.cb.wvalid && mst_vif.cb.wready) begin
-        t.obs_wdata = mst_vif.cb.wdata;
-        t.obs_strb  = mst_vif.cb.wstrb;
-        mst_vif.cb.wvalid <= 1'b0;
+      if (mst_vif.wvalid && mst_vif.cb.wready) begin
+        t.obs_wdata = mst_vif.wdata;
+        t.obs_strb  = mst_vif.wstrb;
+        mst_vif.wvalid <= 1'b0;
         return;
       end
       cyc++;
       if (cyc > cfg.timeout_cycles) begin
-        mst_vif.cb.wvalid <= 1'b0;
+        mst_vif.wvalid <= 1'b0;
         t.txn_result      = TIMEOUT;
         t.txn_reason      = "W 握手超时";
         return;
@@ -180,30 +203,30 @@ class vrf_axil_driver #(
         return;
       end
     end
-    mst_vif.cb.bready <= 1'b1;
+    mst_vif.bready <= 1'b1;
     forever begin
       @(mst_vif.cb);
       if (!mst_vif.arstn) begin
-        mst_vif.cb.bready <= 1'b0;
+        mst_vif.bready <= 1'b0;
         t.obs_interrupted = 1'b1;
         t.check_enable    = 1'b0;
         t.txn_reason      = "B 通道等待期间发生复位";
         return;
       end
-      if (mst_vif.cb.bvalid && mst_vif.cb.bready) begin
+      if (mst_vif.cb.bvalid && mst_vif.bready) begin
         t.obs_resp = axi_resp_e'(mst_vif.cb.bresp);
         t.obs_id   = mst_vif.cb.bid;
         break;
       end
       cyc++;
       if (cyc > cfg.timeout_cycles) begin
-        mst_vif.cb.bready <= 1'b0;
+        mst_vif.bready <= 1'b0;
         t.txn_result      = TIMEOUT;
         t.txn_reason      = "B 响应超时";
         return;
       end
     end
-    mst_vif.cb.bready <= 1'b0;
+    mst_vif.bready <= 1'b0;
   endtask
 
   // ------------------------------ 读事务 ------------------------------
@@ -214,25 +237,25 @@ class vrf_axil_driver #(
 
     repeat ($urandom_range(cfg.idle_cycles_min, cfg.idle_cycles_max)) @(mst_vif.cb);
 
-    mst_vif.cb.arvalid <= 1'b1;
-    mst_vif.cb.araddr  <= t.txn_addr;
-    mst_vif.cb.arport  <= 3'b000;
+    mst_vif.arvalid <= 1'b1;
+    mst_vif.araddr  <= t.txn_addr;
+    mst_vif.arport  <= 3'b000;
     forever begin
       @(mst_vif.cb);
       if (!mst_vif.arstn) begin
-        mst_vif.cb.arvalid <= 1'b0;
+        mst_vif.arvalid <= 1'b0;
         t.obs_interrupted = 1'b1;
         t.txn_reason      = "AR 握手期间发生复位";
         return;
       end
-      if (mst_vif.cb.arvalid && mst_vif.cb.arready) begin
-        t.obs_addr = mst_vif.cb.araddr;
-        mst_vif.cb.arvalid <= 1'b0;
+      if (mst_vif.arvalid && mst_vif.cb.arready) begin
+        t.obs_addr = mst_vif.araddr;
+        mst_vif.arvalid <= 1'b0;
         break;
       end
       cyc++;
       if (cyc > cfg.timeout_cycles) begin
-        mst_vif.cb.arvalid <= 1'b0;
+        mst_vif.arvalid <= 1'b0;
         t.txn_result      = TIMEOUT;
         t.txn_reason      = "AR 握手超时";
         return;
@@ -250,18 +273,18 @@ class vrf_axil_driver #(
         return;
       end
     end
-    mst_vif.cb.rready <= 1'b1;
+    mst_vif.rready <= 1'b1;
     cyc = 0;
     forever begin
       @(mst_vif.cb);
       if (!mst_vif.arstn) begin
-        mst_vif.cb.rready <= 1'b0;
+        mst_vif.rready <= 1'b0;
         t.obs_interrupted = 1'b1;
         t.check_enable    = 1'b0;
         t.txn_reason      = "R 通道等待期间发生复位";
         return;
       end
-      if (mst_vif.cb.rvalid && mst_vif.cb.rready) begin
+      if (mst_vif.cb.rvalid && mst_vif.rready) begin
         t.obs_rdata = mst_vif.cb.rdata;
         t.obs_resp  = axi_resp_e'(mst_vif.cb.rresp);
         t.obs_id    = mst_vif.cb.rid;
@@ -269,13 +292,13 @@ class vrf_axil_driver #(
       end
       cyc++;
       if (cyc > cfg.timeout_cycles) begin
-        mst_vif.cb.rready <= 1'b0;
+        mst_vif.rready <= 1'b0;
         t.txn_result      = TIMEOUT;
         t.txn_reason      = "R 响应超时";
         return;
       end
     end
-    mst_vif.cb.rready <= 1'b0;
+    mst_vif.rready <= 1'b0;
   endtask
 endclass
 
