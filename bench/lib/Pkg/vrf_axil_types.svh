@@ -1,6 +1,6 @@
 // =============================================================================
 // 公共类型定义与全局运行控制
-//   - AXI4-Lite 默认位宽参数（与 DVP2axi_stream 一致，可由 typedef 重新特化）
+//   - AXI4-Lite 默认位宽参数（可由 typedef 重新特化，以对接不同位宽的 DUT）
 //   - 事务方向/结果/响应/寄存器访问属性等枚举
 //   - 运行期全局控制与完成计数（objection 式）
 // =============================================================================
@@ -18,7 +18,6 @@ typedef enum logic [1:0] { NORMAL, HIGH_IMPEDANCE, UNKNOWN_X } sig_status_e; // 
 typedef enum { AXIL_WR, AXIL_RD } axil_dir_e;                                // 事务方向
 typedef enum { VRF_ROLE_MST, VRF_ROLE_SLV } vrf_role_e;                      // 驱动器角色
 typedef enum { ACC_RW, ACC_RO, ACC_W1C } vrf_access_e;                       // 寄存器访问属性
-typedef enum { SP_NONE, SP_CTRL } vrf_special_e;                             // 寄存器特殊行为
 
 // ------------------------------ 全局接口句柄 ------------------------------
 // 通配符自动连接桥 / 从机参考模型在 0 时刻把接口实例发布到此处，
@@ -63,7 +62,8 @@ class vrf_axil_ctrl;
 endclass
 
 // ------------------------------ 完成计数 ------------------------------
-// sequence/环境每提交一笔事务 +1，计分板完成比对 -1；归零即本轮验证结束
+// sequence/环境每提交一笔事务 raise() 一次，计分板完成一笔比对 drop() 一次；归零即本轮验证结束。
+// 计数只通过 raise()/drop() 修改，避免 ++/-- 散落在多处、配平脆弱。
 class vrf_axil_done_ctrl;
   static int pending  = 0;
   static bit seq_done = 0;
@@ -73,5 +73,24 @@ class vrf_axil_done_ctrl;
     pending  = 0;
     seq_done = 0;
     all_done = 0;
+  endfunction
+
+  // 登记待完成事务（提交事务前调用）
+  static function void raise(int n = 1);
+    if (n <= 0) return;
+    pending += n;
+  endfunction
+
+  // 释放一笔已完成比对的事务
+  static function void drop();
+    if (pending <= 0) begin
+      // 计数下溢说明配平被破坏（多释放或漏登记）：按断言告警处理，不做静默钳位，
+      // 否则「仿真提前结束」这类平台缺陷会被悄悄掩盖
+      vrf_axil_ctrl::assert_fail_cnt++;
+      $display("[%0t][VRF_AXIL][ERROR] 完成计数下溢：pending 已为 0 时仍调用 drop()（本次不递减）", $time);
+      return;
+    end
+    pending--;
+    if (seq_done && (pending == 0)) all_done = 1;
   endfunction
 endclass

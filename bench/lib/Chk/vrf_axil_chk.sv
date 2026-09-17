@@ -291,15 +291,7 @@ module vrf_axil_chk #(
 endmodule
 
 // -----------------------------------------------------------------------------
-// 挂接：被测 DUT 与从机参考模型共用同一套协议检查器
-//   编译期按测试选择 bind 目标（避免未实例化的目标产生未解析引用）：
-//     库自测 demo   : +define+VRF_AXIL_BIND_REF
-//     DVP2axi_stream: +define+VRF_AXIL_BIND_DVP2AXI
+// 挂接说明：本检查器不绑定任何具体 DUT——bind 语句由使用方在自己的用例/挂具文件中给出
+//   （bind <被测模块> vrf_axil_chk u_vrf_axil_chk (.*);），
+//   使库本体不含 DUT 名，接入新 DUT 时无需修改本文件。
 // -----------------------------------------------------------------------------
-`ifdef VRF_AXIL_BIND_DVP2AXI
-  bind DVP2axi_stream vrf_axil_chk u_vrf_axil_chk (. *);
-`endif
-
-`ifdef VRF_AXIL_BIND_REF
-  bind vrf_axil_slv_ref vrf_axil_chk u_vrf_axil_chk (. *);
-`endif

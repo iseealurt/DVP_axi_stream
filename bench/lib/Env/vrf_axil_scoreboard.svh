@@ -16,7 +16,7 @@ class vrf_axil_scoreboard #(
   typedef vrf_axil_txn #(AWIDTH, DWIDTH, IDWIDTH) txn_t;
 
   vrf_axil_cfg      cfg;
-  vrf_axil_regmodel model;
+  vrf_axil_regmodel #(DWIDTH) model;
   vrf_axil_cov_t    cov;
 
   mailbox #(txn_t)  from_drv;     // 已发起事务
@@ -38,7 +38,7 @@ class vrf_axil_scoreboard #(
   txn_t fail_q[$];                // 失败事务清单
   int   err_fd;                   // 错误报告文件句柄
 
-  function new(vrf_axil_cfg cfg, vrf_axil_regmodel model, vrf_axil_cov_t cov,
+  function new(vrf_axil_cfg cfg, vrf_axil_regmodel #(DWIDTH) model, vrf_axil_cov_t cov,
                mailbox #(txn_t) from_drv, mailbox #(txn_t) from_mon);
     this.cfg      = cfg;
     this.model    = model;
@@ -95,8 +95,7 @@ class vrf_axil_scoreboard #(
         n_checked++;
         n_fail++;
         report_fail(null, o, "观测到未发起的事务");
-        vrf_axil_done_ctrl::pending--;
-        if (vrf_axil_done_ctrl::pending < 0) vrf_axil_done_ctrl::pending = 0;
+        vrf_axil_done_ctrl::drop();
         continue;
       end
 
@@ -131,10 +130,7 @@ class vrf_axil_scoreboard #(
         if (cov != null) cov.sample(o, model.is_ro(o.obs_addr), !model.is_mapped(o.obs_addr));
       end
 
-      vrf_axil_done_ctrl::pending--;
-      if (vrf_axil_done_ctrl::pending < 0) vrf_axil_done_ctrl::pending = 0;
-      if (vrf_axil_done_ctrl::seq_done && vrf_axil_done_ctrl::pending == 0)
-        vrf_axil_done_ctrl::all_done = 1;
+      vrf_axil_done_ctrl::drop();
     end
   endtask
 
@@ -183,10 +179,10 @@ class vrf_axil_scoreboard #(
       return ok;
     end
 
-    // ID 一致性（本 DUT 固定返回 0）
-    if (o.obs_id !== '0) begin
+    // ID 一致性：期望值来自 cfg（ID 是否检查、期望值属 DUT 能力，不写死在库内）
+    if (cfg.exp_id_check && (o.obs_id !== cfg.exp_id_value[IDWIDTH-1:0])) begin
       ok = 0;
-      iss.txn_reason = $sformatf("事务 ID 非 0：实际 %0d", o.obs_id);
+      iss.txn_reason = $sformatf("事务 ID 不符：预期 %0d，实际 %0d", cfg.exp_id_value, o.obs_id);
       return ok;
     end
 
@@ -225,7 +221,7 @@ class vrf_axil_scoreboard #(
     r.is_repro = 1'b1;
     // 复现事务同样计入完成计数，否则 wait_idle 会在复现完成前提前返回
     repro_seqr.inject_repro(r);
-    vrf_axil_done_ctrl::pending++;
+    vrf_axil_done_ctrl::raise();
     n_repro++;
     if (mon_h != null) mon_h.set_wide_mode(1'b1);
     $display("[%0t][VRF_AXIL][REPRO] 失败事务已回注 sequencer 复现，并开启宽监视模式", $time);

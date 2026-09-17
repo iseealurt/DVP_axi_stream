@@ -31,11 +31,12 @@
 | 通配符自动连接 | 挂具模块内 `MY_DUT u_dut (.*);` 即可按名连接 DUT 全部端口，配合挂钩宏 `` `VRF_AXIL_HOOK_DECL `` 一次性完成接口实例化与句柄发布 |
 | 三视角接口 | `mst` / `slv` / `mnt` 三个参数化接口（`AWIDTH` / `DWIDTH` / `IDWIDTH`），含明确驱动与采样约定，避免握手当拍取错相位 |
 | 上电连通性自检 | 空闲态静态检查 → 走线激励 → 探针事务，按信号输出「正常 / 恒定 / 未驱动或含 X/Z / 连接错误」结论表 |
-| 轻量寄存器模型 | RAL-like 模型维护镜像值与访问属性（R/W、RO、W1C、自清零），支持 `wstrb` 字节使能、`SOFT_RST` / `CLR_CNT` 副作用与内部事件注入 |
+| 轻量寄存器模型 | RAL-like 模型维护镜像值与访问属性（R/W、RO、W1C、自清零），按数据位宽参数化；支持 `wstrb` 字节使能、按偏移注册的写副作用回调（如 `SOFT_RST` / `CLR_CNT`）、可配置的未映射访问行为与内部事件注入 |
 | 分层组件 | cfg / sequence / sequencer / driver / monitor / scoreboard / coverage，全部以 mailbox 串起数据流，无 factory/phase/objection 等重型机制 |
 | 定向 + 受约束随机 | 定向用例按名注册与一键挂载（`"ALL"` 挂载全部）；随机事务支持地址区间、读写均衡、strb 模式、AW/W 延迟、B/R 反压约束 |
-| 协议检查器 | 独立 binder 模块 `vrf_axil_chk`，21 条 SVA 属性覆盖 X/Z、握手稳定性、通道协议、resp 合法性、超时、复位约束，按 formal-friendly 方式编写 |
-| 功能覆盖率 | 7 个 coverpoint + 3 个 cross，UCDB 落盘，并按「可达口径」用 `ignore_bins` 排除不可达 bin |
+| 协议检查器 | 独立 binder 模块 `vrf_axil_chk`，21 条 SVA 属性覆盖 X/Z、握手稳定性、通道协议、resp 合法性、超时、复位约束，按 formal-friendly 方式编写；bind 由用例给出，库本体不含 DUT 名 |
+| 功能覆盖率 | 7 个 coverpoint + 3 个 cross，UCDB 落盘；地址区间按 cfg 归一为区间码（与 DUT 布局解耦），异常响应/非 0 ID 的 bin 由能力开关控制 |
+| 复位窗口专项用例 | `tb_vrf_axil_rst_window`：直接驱动监视视角接口，复现并回归「AW 已握手、W 未握手期间拉复位」下的配对正确性与半笔写上报 |
 | 失败自动复现 | seed 回放 → 失败事务回注 sequencer 单笔重注 → monitor 宽监视逐拍记录 → 格式化错误报告 + 种子落盘 |
 | 脚本与回归 | 单用例一键编译仿真、多种子批量回归（超时保护、陈旧报告校验、工作库所有权保护）、前置条件检查，另提供 `Makefile` 统一入口 |
 
@@ -46,10 +47,11 @@
 | 项 | 结果 |
 |---|---|
 | 库自测用例 `tb_vrf_axil_demo` | **PASSED**：事务比对 285 项，失败 0；协议断言 5238 次，失败 0 |
-| 接入示例 `tb_dvp2ax_stream` | **PASSED**：事务比对 539 项（跳过 1），失败 0；协议断言 7208 次，失败 0 |
-| 上电连通性自检 | 两个用例均 21 个总线信号全部通过（0 连接错误、0 X/Z） |
+| 接入示例 `tb_dvp2ax_stream` | **PASSED**：事务比对 539 项（跳过 1），失败 0；协议断言 7214 次，失败 0 |
+| 复位窗口定向用例 `tb_vrf_axil_rst_window` | **PASSED**：12 项检查，失败 0（修复前可稳定复现 AW/W 窗口期复位的地址错配） |
+| 上电连通性自检 | 三个用例均 21 个总线信号全部通过（0 连接错误、0 X/Z） |
 | 功能覆盖率 | **100.00%**（可达 bin 37/37） |
-| 批量回归 | 5 个随机种子全部 PASSED，累计检查 2695 项 |
+| 批量回归 | 三个用例各 5 个随机种子全部 PASSED |
 | 编译与仿真告警 | **0 错误、0 告警** |
 | 失败复现链路 | 已通过故障注入自测（失败检测 → 回注复现 → 宽监视 → 错误报告 → 种子落盘） |
 
@@ -92,10 +94,11 @@ Seed     Exit   Checks     Failures   AssertErr   Verdict
 │   │   ├── Env/  vrf_axil_env.svh        # 环境类（一键启用 / 细粒度控制）
 │   │   │         vrf_axil_scoreboard.svh # 计分板
 │   │   ├── Chk/  vrf_axil_bringup.svh    # 上电连通性自检
-│   │   │         vrf_axil_chk.sv         # 协议检查器 + bind
+│   │   │         vrf_axil_chk.sv         # 协议检查器（bind 语句由用例给出，库本体不含 DUT 名）
 │   ├── tb/
 │   │   ├── tb_vrf_axil_demo.sv   # 库自测用例（对端：从机参考模型，不依赖 RTL）
-│   │   └── tb_dvp2ax_stream.sv   # 接入示例（对端：DVP2axi_stream）
+│   │   ├── tb_dvp2ax_stream.sv   # 接入示例（对端：DVP2axi_stream）
+│   │   └── tb_vrf_axil_rst_window.sv  # 复位窗口定向用例（直接驱动监视视角接口）
 │   ├── scripts/
 │   │   ├── filelist.f            # 编译文件列表（顺序固定，须配合 -mfcu）
 │   │   ├── check_env.ps1         # 前置条件检查
@@ -105,8 +108,10 @@ Seed     Exit   Checks     Failures   AssertErr   Verdict
 │   └── abandoned/                # 已废弃的历史验证代码（不参与编译）
 ├── Doc/
 │   ├── API_VRF_AXI4L.md          # 库 API 接口文档
-│   ├── Dev_plan_0916.md          # 开发计划
+│   ├── Dev_plan_0916.md          # 开发计划（库搭建 + 寄存器块接入）
 │   ├── Dev_report_0916.md        # 开发报告（含四轮评审修正记录）
+│   ├── Dev_plan_0917.md          # 开发计划（缺陷修复 / 验证深度 / 工程化 / 范围扩展）
+│   ├── Dev_report_0917.md        # 开发报告（阶段一：缺陷修复与库通用性收尾）
 │   ├── Reg_v_0_0.md              # DVP2AXI_Stream 寄存器设计说明
 │   └── AXI4_Lite_Sim_Report.md   # 历史基线仿真报告
 ├── Makefile                      # 统一入口（内部调用上述 PowerShell 脚本）
@@ -135,6 +140,9 @@ powershell -File bench/scripts/run.ps1 -Test tb_vrf_axil_demo
 
 # DVP2axi_stream 接入示例
 powershell -File bench/scripts/run.ps1 -Test tb_dvp2ax_stream
+
+# 复位窗口定向用例（AW 已握手、W 未握手期间拉复位）
+powershell -File bench/scripts/run.ps1 -Test tb_vrf_axil_rst_window
 
 # 指定种子复现
 powershell -File bench/scripts/run.ps1 -Test tb_dvp2ax_stream -Seed 12345
@@ -190,14 +198,18 @@ vlog -mfcu -cuname <test>_cu -sv -work <lib> +define+<BIND_MODE> -f bench/script
 
 - `-mfcu` **必须**：接口位于 `$unit` 作用域，需与 package 处于同一编译单元
 - `-cuname` 建议：保证编译单元作用域的 `bind` 一定参与 elaboration
-- 每个用例使用独立工作库（`work_demo` / `work_dvp2axi`），避免不同 `-define` 编译出的同名单元互相覆盖
+- 每个用例使用独立工作库（`work_demo` / `work_dvp2axi` / `work_rstw`），避免不同 `-define` 编译出的同名单元互相覆盖
 
-`<BIND_MODE>` 选择协议检查器的 bind 目标：
+`<BIND_MODE>` 选择协议检查器的 bind 目标（bind 语句写在**用例文件**里，库本体不含 DUT 名）：
 
 | 被测对端 | 宏定义 | 工作库 |
 |---|---|---|
 | 从机参考模型（库自测） | `+define+VRF_AXIL_BIND_REF` | `work_demo` |
 | DVP2axi_stream | `+define+VRF_AXIL_BIND_DVP2AXI` | `work_dvp2axi` |
+| 监视视角接口（无 DUT，不需 bind） | 不传 | `work_rstw` |
+
+DUT 会产生错误响应或非 0 事务 ID 时，另需定义覆盖率能力开关
+（`+define+VRF_AXIL_COV_HAS_ERR` / `+define+VRF_AXIL_COV_HAS_ID`），且与 `cfg.has_err_resp`/`cfg.has_id` 一致。
 
 ### 2. 写挂具模块
 
@@ -237,10 +249,12 @@ env.report();
 ### 4. 接入新 DUT 的步骤
 
 1. 写挂具模块（挂具内声明本轮不验证的端口占位，供 `.*` 按名连接）；
-2. 在 `bench/lib/Chk/vrf_axil_chk.sv` 中按 `+define+` 增加一条 `bind MY_DUT vrf_axil_chk ...`，并在 `run.ps1` 的 `switch` 中登记编译模式；
-3. 在 `vrf_axil_regmodel` 中新增 `build_xxx_map()`，并设置 `cfg.reg_map`；
-4. 复制 `bench/tb/tb_dvp2ax_stream.sv`，替换挂具与寄存器偏移常量；
-5. 在 `bench/scripts/filelist.f` 末尾追加挂具与用例文件。
+2. 在**自己的用例文件**中加 bind（库本体不含 DUT 名），并在 `run.ps1` / `regression.ps1` 中登记 `+define+` 与工作库名；
+3. 在 `vrf_axil_regmodel` 中新增 `build_xxx_map()` 并在 `build_map()` 中登记，用例里设置 `cfg.reg_map`（未设置即 `$fatal`）；
+   写副作用用 `reg_special_cb()` 注册回调，未映射访问行为用 map 内的 `unmap_resp` / `unmap_rdata` 配置；
+4. 按 DUT 能力设置 `cfg.exp_id_check`/`cfg.exp_id_value`、`cfg.has_err_resp`/`cfg.has_id`（编译期开关同步定义）、`cfg.cov_addr_lo`/`cfg.cov_addr_hi`；
+5. 复制 `bench/tb/tb_dvp2ax_stream.sv`，替换挂具与寄存器偏移常量；
+6. 在 `bench/scripts/filelist.f` 末尾追加挂具与用例文件。
 
 > 库本体（`bench/lib`）无需修改。详细 API 见 [Doc/API_VRF_AXI4L.md](Doc/API_VRF_AXI4L.md)。
 
@@ -310,11 +324,16 @@ SystemVerilog 的 `bind` **只能观测**目标模块内部信号，**无法驱�
 
 功能覆盖率只衡量「DUT 能够表现出的行为」，因此以 `ignore_bins` 排除：AXI4-Lite 不使用的 `EXOKAY`、当前 DUT 不产生的 `SLVERR`/`DECERR`、恒为 0 的非 0 主机 ID、结构非法的全零写选通、以及读方向的字节选通列。
 
-> **接入新 DUT 时须复核**：若新 DUT 会返回 `SLVERR`/`DECERR` 或使用非 0 的 `bid`/`rid`，必须移除对应 `ignore_bins`，否则会掩盖真实覆盖漏洞。
+其中与 DUT 能力相关的两类（异常响应、非 0 ID）由**编译期能力开关**控制：
+`+define+VRF_AXIL_COV_HAS_ERR` / `+define+VRF_AXIL_COV_HAS_ID` 决定对应 bin 是否参与统计，
+`cfg.has_err_resp` / `cfg.has_id` 是 API 侧声明，两者不一致时构造覆盖率收集器即 `$fatal`。
+地址区间不再写死：covergroup 只对「区间码」采样，区间码由 `cfg.cov_addr_lo/hi` 归一（区间内四等分 + 顶部寄存器区 + 区间外）。
+
+> **为什么是编译期开关**：ModelSim 2020.4 不支持 covergroup 参数端口，且 `ignore_bins` 上的运行期 `iff` 条件在 elaboration 期即固化（实测构造后修改不生效并产生告警）。
 
 ### 仿真结束机制
 
-`vrf_axil_done_ctrl::pending` 实现 objection 式完成计数：提交事务 +1，计分板比对完成 -1；`env.wait_idle()` 等待归零并留 4 拍收尾，另有 `cfg.max_txn` 与 `cfg.max_sim_time` 上限兜底。
+`vrf_axil_done_ctrl` 实现 objection 式完成计数：提交事务时 `raise()`，计分板完成比对时 `drop()`（计数只从这两个方法修改）；`env.wait_idle()` 等待归零并留 4 拍收尾，另有 `cfg.max_txn` 与 `cfg.max_sim_time` 上限兜底。计数下溢按断言告警处理（计入 `assert_fail_cnt`），不做静默钳位。
 
 ---
 
@@ -325,6 +344,8 @@ SystemVerilog 的 `bind` **只能观测**目标模块内部信号，**无法驱�
 | [Doc/API_VRF_AXI4L.md](Doc/API_VRF_AXI4L.md) | 库 API 接口文档：每个类/方法的功能、入参出参、调用时序与接入步骤 |
 | [Doc/Dev_plan_0916.md](Doc/Dev_plan_0916.md) | 开发计划：范围边界、总体约定、四阶段落地计划与验收标准 |
 | [Doc/Dev_report_0916.md](Doc/Dev_report_0916.md) | 开发报告：验证结果、关键机制实现、四轮代码评审修正记录 |
+| [Doc/Dev_plan_0917.md](Doc/Dev_plan_0917.md) | 开发计划（0917）：审阅问题清单、四阶段任务与验收清单、开发报告内容要求 |
+| [Doc/Dev_report_0917.md](Doc/Dev_report_0917.md) | 开发报告（0917 阶段一）：缺陷修复、库通用性收尾与验收对账 |
 | [Doc/Reg_v_0_0.md](Doc/Reg_v_0_0.md) | DVP2AXI_Stream 寄存器设计方案 |
 | [Doc/AXI4_Lite_Sim_Report.md](Doc/AXI4_Lite_Sim_Report.md) | 历史基线仿真报告（17 项覆盖项，已全部被本库覆盖并扩展） |
 | [bench/abandoned/README.md](bench/abandoned/README.md) | 已废弃历史代码清单与已知缺陷说明 |
@@ -339,7 +360,9 @@ SystemVerilog 的 `bind` **只能观测**目标模块内部信号，**无法驱�
 4. **代码覆盖率**：`-Cover` 会同时开启代码覆盖率，但当前只统计功能覆盖率，代码覆盖率未纳入验收。
 5. **非标准端口**：`awport` / `arport` 为非标准端口，仅做连通性与 X/Z 检查，不纳入标准协议检查。
 6. **Makefile**：本机未安装 `make`，未做实机验证；内部调用的 PowerShell 脚本均已验证。
-7. **并发运行**：工作库名固定（`work_demo` / `work_dvp2axi`），不支持同一用例的真正并发运行。`run.ps1` 会在工程根目录写占用标记（原子创建、记录 PID），被存活进程占用时以退出码 3 拒绝，陈旧标记会被接管。
+7. **并发运行**：工作库名固定（`work_demo` / `work_dvp2axi` / `work_rstw`），不支持同一用例的真正并发运行。`run.ps1` 会在工程根目录写占用标记（原子创建、记录 PID），被存活进程占用时以退出码 3 拒绝，陈旧标记会被接管。
+8. **覆盖率能力开关**：异常响应与非 0 ID 的 bin 由**编译期**开关决定（ModelSim 2020.4 不支持 covergroup 参数端口，运行期 `iff` 亦在 elaboration 期固化），须与 `cfg` 声明一致，否则构造覆盖率收集器即 `$fatal`。
+9. **复位窗口用例为白盒**：`tb_vrf_axil_rst_window` 直接驱动监视视角接口——因为现有两台对端（`DVP2axi_stream` 与 `vrf_axil_slv_ref`）都只在 `awvalid & wvalid` 同时有效时拉高 `awready/wready`，「AW 已握手、W 未握手」这一协议合法窗口在全系统激励下不可达。
 
 ---
 

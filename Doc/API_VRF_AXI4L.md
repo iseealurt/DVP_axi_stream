@@ -1,4 +1,4 @@
-# VRF_AXI4L 验证库 API 接口文档@20260915
+# VRF_AXI4L 验证库 API 接口文档@20260917
 
 本文件为 AXI4-Lite 自建验证库（VRF_AXI4L）的接口说明，供后续项目直接查阅复用。
 
@@ -26,14 +26,16 @@ vlog -mfcu -cuname <test>_cu -sv -work <lib> +define+<BIND_MODE> -f bench/script
 |---|---|
 | `-mfcu` | **必须**：接口位于 `$unit` 作用域，需与 package 处于同一编译单元 |
 | `-cuname` | **建议**：为多文件编译单元命名，保证编译单元作用域的 `bind` 一定参与 elaboration |
-| `-work <lib>` | 每个用例独立工作库：`work_demo`（库自测）、`work_dvp2axi`（接入示例），避免不同 `-define` 编译出的同名单元互相覆盖 |
+| `-work <lib>` | 每个用例独立工作库：`work_demo`（库自测）、`work_dvp2axi`（接入示例）、`work_rstw`（复位窗口定向用例），避免不同 `-define` 编译出的同名单元互相覆盖 |
 
-`<BIND_MODE>` 用于选择协议检查器的 bind 目标（避免未实例化目标产生未解析引用）：
+`<BIND_MODE>` 用于选择协议检查器的 bind 目标（避免未实例化目标产生未解析引用）。
+**bind 语句写在用例文件里**（`bench/tb/*.sv`），库本体 `vrf_axil_chk.sv` 不含任何 DUT 名，接入新 DUT 不必改库：
 
 | 被测对端 | 宏定义 | 工作库 |
 |---|---|---|
-| 从机参考模型（库自测） | `+define+VRF_AXIL_BIND_REF` | `work_demo` |
-| DVP2axi_stream | `+define+VRF_AXIL_BIND_DVP2AXI` | `work_dvp2axi` |
+| 从机参考模型（库自测） | `+define+VRF_AXIL_BIND_REF`（bind 在 `tb_vrf_axil_demo.sv`） | `work_demo` |
+| DVP2axi_stream | `+define+VRF_AXIL_BIND_DVP2AXI`（bind 在 `tb_dvp2ax_stream.sv`） | `work_dvp2axi` |
+| 监视视角接口（无 DUT，不需 bind） | 不传 | `work_rstw` |
 
 ### 1.2 使用方式
 
@@ -129,7 +131,6 @@ typedef vrf_axil_txn_t   // 默认特化别名，库内部统一使用
 | `txn_addr` | `rand logic [AW-1:0]` | 地址（约束按数据位宽对齐） |
 | `txn_data` | `rand logic [DW-1:0]` | 写数据 |
 | `txn_strb` | `rand logic [STRB-1:0]` | 字节选通（写事务非 0） |
-| `txn_mst_id` | `randc logic [ID-1:0]` | 主机 ID |
 | `addr_min/addr_max` | `logic [AW-1:0]` | 随机地址区间（非随机，由 sequence/config 注入） |
 | `strb_mode` | `int unsigned` | 0=随机、1=全选通、2=单字节 |
 | `aw_delay/w_delay` | `int` | AW/W 通道到达延迟（-1 表示沿用 config） |
@@ -176,11 +177,14 @@ typedef vrf_axil_txn_t   // 默认特化别名，库内部统一使用
 | `idle_cycles_min/max` | 0..2 | 事务间空闲周期 |
 | `enable_xz_check` 等 4 个检查开关 | 1 | 协议检查分类开关 |
 | `timeout_cycles` | 200 | 握手超时门限 |
+| `exp_id_check` / `exp_id_value` | 1 / 0 | 是否检查响应通道事务 ID / 期望的 ID 值（DUT 能力差异不写死在库内） |
 | `enable_bringup_check` | 1 | 是否执行上电连通性自检 |
 | `enable_coverage` | 1 | 是否启用功能覆盖率 |
+| `has_err_resp` / `has_id` | 0 / 0 | 覆盖率能力声明：DUT 是否会产生错误响应 / 非 0 事务 ID（须与编译期开关一致，见 §11） |
+| `cov_addr_lo` / `cov_addr_hi` | 0x00 / 0x80 | 覆盖率地址区间上下限（用于把地址归一为区间码） |
 | `enable_repro` / `repro_max_attempts` / `seed_file` | 0 / 1 / — | 失败自动化复现开关、最大重注次数、种子落盘文件 |
 | `max_txn` / `max_sim_time` | 20000 / 1ms | 仿真上限兜底 |
-| `reg_map` | "DVP2AXI" | 寄存器映射选择：`DVP2AXI` / `REF_SLAVE` |
+| `reg_map` | `""` | 寄存器映射名，**必须由用例显式指定**；未设置（空串）时构造寄存器模型即 `$fatal` |
 
 ---
 
@@ -188,20 +192,42 @@ typedef vrf_axil_txn_t   // 默认特化别名，库内部统一使用
 
 轻量 RAL-like 模型：维护镜像值与访问属性，为计分板提供预期值预测。
 
+```
+vrf_axil_regmodel #(DWIDTH=32)
+```
+
+**位宽**：模型按数据位宽参数化（镜像值、字节选通、预测接口一律按 `DWIDTH` 派生）。
+内置的两套 map 都按 32 位字定义，因此 `DWIDTH≠32` 时构造即 `$fatal`，不会按 32 位静默算错
+（与从机参考模型的 32 位断言口径一致）；若要支持更宽的数据位宽，需先按位宽改写 map 再放开该断言。
+
 | 方法 | 说明 |
 |---|---|
-| `add_reg(name, offset, access, reset_val, selfclear_mask, special, dynamic)` | 添加寄存器描述（访问属性：`ACC_RW`/`ACC_RO`/`ACC_W1C`） |
-| `build_dvp2axi_stream_map()` | 按 `Doc/Reg_v_0_0.md` 建立 DVP2axi_stream 寄存器映射（23 个寄存器） |
+| `build_map(map_name)` | 按名字构建映射（`"DVP2AXI"` / `"REF_SLAVE"`）；未知名字 `$fatal`。名字与实现的对应关系收敛在本文件内，库本体其它文件不含 DUT 名 |
+| `build_dvp2axi_stream_map()` | 按 `Doc/Reg_v_0_0.md` 建立寄存器映射（23 个寄存器） |
 | `build_ref_slave_map()` | 建立从机参考模型映射（7 个寄存器） |
+| `add_reg(name, offset, access, reset_val, selfclear_mask, dynamic)` | 添加寄存器描述（访问属性：`ACC_RW`/`ACC_RO`/`ACC_W1C`） |
+| `reg_special_cb(offset, cb)` | 为某偏移注册**写副作用回调**（见下） |
 | `find(offset)` / `is_mapped(offset)` / `is_ro(offset)` | 查询 |
 | `reset()` | 全部镜像恢复复位默认值 |
 | `set_mirror(offset,val)` / `get_mirror(offset)` | 直接读写镜像（供定向用例同步） |
-| `predict_write(offset,data,strb)` | 写预测：wstrb 字节使能、W1C、自清零、CTRL 的 SOFT_RST/CLR_CNT 副作用；未映射地址与只读寄存器写被忽略 |
-| `predict_read(offset)` | 读预测：返回镜像值；未映射地址返回 0 |
-| `predict_resp(dir,offset)` | 响应预测（当前 DUT 未映射地址同样返回 OKAY） |
-| `event_frame_done()` / `event_fifo_overflow()` / `event_line_err()` / `event_frame_err()` / `event_axis_err()` / `event_cfg_err()` | 内部事件注入接口：定向用例层次化 force 事件后调用，保持模型与 DUT 同步 |
+| `wstrb_apply(old,new,strb)` | 静态函数：按字节选通的写合并（宽度按 `DWIDTH` 派生） |
+| `predict_write(offset,data,strb)` | 写预测：wstrb 字节使能、W1C、自清零、调用该偏移注册的副作用回调；未映射地址与只读寄存器写被忽略 |
+| `predict_read(offset)` | 读预测：返回镜像值；未映射地址返回 `unmap_rdata` |
+| `predict_resp(dir,offset)` | 响应预测：已映射返回 OKAY；未映射返回 `unmap_resp` |
+| `event_frame_done()` / `event_fifo_overflow()` / `event_line_err()` / `event_frame_err()` / `event_axis_err()` / `event_cfg_err()` | 内部事件注入接口：定向用例注入内部事件后调用，保持模型与 DUT 同步 |
 
-可重设的寄存器偏移：`off_ctrl`、`off_frame_cnt`、`off_err_flag`、`off_int_status`、`off_dbg_pix/line/beat`、`ctrl_side_effect`。
+**按 map 可配置项**（不再是库内固定的 DUT 假设）：
+
+| 成员 | 含义 |
+|---|---|
+| `unmap_resp` / `unmap_rdata` | 未映射地址的响应 / 读数据预测（默认 OKAY / 0，由各 map 设置；stage 2 的错误响应注入即在此配置） |
+| `special_cb[offset]` | 写副作用回调注册表：模型本体不含任何 DUT 偏移 |
+| `evt_frame_cnt_off` / `evt_err_flag_off` / `evt_int_status_off` | 事件注入涉及的寄存器偏移（由各 map 填写） |
+
+**写副作用回调**：派生 `vrf_axil_wr_cb #(DWIDTH)` 并实现 `apply(ref mirror, offset, data, strb)`，
+再由 map 用 `reg_special_cb(offset, cb)` 注册。DVP2axi_stream 的 `CTRL`（SOFT_RST / CLR_CNT）副作用
+即由 `vrf_axil_dvp2axi_ctrl_cb` 实现并在 `build_dvp2axi_stream_map()` 内注册——新 DUT 只需写自己的回调，
+通用模型本体的代码不用改。
 
 ---
 
@@ -224,16 +250,17 @@ typedef vrf_axil_txn_t   // 默认特化别名，库内部统一使用
 | `new(cfg, seq_mbx)` | 绑定配置与目标邮箱 |
 | `add_directed(txn)` | 直接追加一笔定向事务 |
 | `load_directed_by_name(case_name)` | 按名从定向用例库挂载 |
-| `body()` | 产生测试向量：先发定向队列、再发 `cfg.n_rand_txn` 笔随机事务；每笔 `pending++`；结束时置 `seq_done` |
+| `body()` | 产生测试向量：先发定向队列、再发 `cfg.n_rand_txn` 笔随机事务；每笔 `raise()` 登记完成计数；结束时置 `seq_done` |
 
 ### 7.2 `vrf_axil_sequencer`
 
 | 成员 / 方法 | 说明 |
 |---|---|
 | `from_seq` / `from_env` / `repro_mbx` / `to_drv` | 四条邮箱 |
+| `clk_vif` | 仲裁空转用的接口时钟（`env.connect()` 注入；未注入时按全局连接表兜底获取） |
 | `import_directed_queue(q[$])` | 一键导入定向测试队列 |
 | `inject_repro(txn)` | 失败用例单笔重注 |
-| `run()` | 仲裁：复现事务 > 环境定向队列 > sequence 队列，送往 driver |
+| `run()` | 仲裁：复现事务 > 环境定向队列 > sequence 队列，送往 driver；三路队列均空时等待下一个接口时钟沿（不使用固定时延轮询） |
 
 ---
 
@@ -274,7 +301,11 @@ new(cfg, mnt_vif, model, obs_mbx)
 
 - 采样主循环逐拍读取总线，**同一拍内先做读预测、后做写提交**，与 RTL 边沿语义一致；
 - 读预测在 AR 握手当拍完成，写提交在读预测之后，保证并发同址读写时预期值正确；
-- 观测事务只在 `vrf_axil_ctrl::mon_enable` 为 1 时产生（上电自检期间不采样）。
+- 观测事务只在 `vrf_axil_ctrl::mon_enable` 为 1 时产生（上电自检期间不采样）；
+- **复位处理**：检测到 `arstn` 为低即清空全部挂起状态（`aw_pend`/`w_pend`/`ar_pend`）与暂存寄存器，
+  避免复位前的 AW 地址滞留、与复位后的新 W 配成错笔（缺陷 A1）。
+  若复位发生时存在「只被部分接受（仅 AW 或仅 W 握手）」的写，该半笔写会作为**被打断的观测**
+  （`obs_interrupted=1`）上交计分板：既不静默丢弃总线活动，也使完成计数配平。
 
 ---
 
@@ -301,13 +332,17 @@ vrf_axil_slv_ref #(AW=32, DW=32, ID=4, RDY_DLY_MIN=0, RDY_DLY_MAX=2)
 
 | 方法 | 说明 |
 |---|---|
-| `new(cfg)` | `cfg.enable_coverage` 为 1 时构造 covergroup 实例 |
-| `sample(txn, is_ro, is_unmapped)` | 采样一笔已完成比对的事务 |
+| `new(cfg)` | `cfg.enable_coverage` 为 1 时构造 covergroup 实例；同时校验 `cfg.has_err_resp`/`cfg.has_id` 与编译期能力开关是否一致（不一致即 `$fatal`） |
+| `sample(txn, is_ro, is_unmapped)` | 采样一笔已完成比对的事务（地址先按 `cfg.cov_addr_lo/hi` 归一为区间码） |
 | `get_coverage()` | 返回 covergroup 覆盖率 |
 | `report_string()` | 返回报告文本（覆盖率 + 采样次数） |
-| `report_note()` | 返回覆盖率口径说明（逐条列出被 ignore_bins 排除的 bin 及原因） |
+| `report_note()` | 返回覆盖率口径说明（逐条列出被 ignore_bins 排除的 bin 及原因，随 `cfg` 的能力开关变化） |
+| `region_of(addr)` | 地址 → 区间码（区间内四等分 0~3、顶部寄存器区 4、区间外 5） |
 
-覆盖点：`cp_dir`、`cp_addr`（5 个地址区间）、`cp_strb`（写方向 6 类选通组合）、`cp_resp`、`cp_id`、`cp_ro`、`cp_unmapped`；交叉：`cx_dir_addr`、`cx_dir_strb`、`cx_dir_resp`。
+覆盖点：`cp_dir`、`cp_addr`（6 个区间码 bin）、`cp_strb`（写方向 6 类选通组合）、`cp_resp`、`cp_id`、`cp_ro`、`cp_unmapped`；交叉：`cx_dir_addr`、`cx_dir_strb`、`cx_dir_resp`。
+
+**地址区间与 DUT 布局解耦**：covergroup 只对区间码采样，区间码由 `vrf_axil_cov::region_of()` 按
+`cfg.cov_addr_lo/hi` 计算（区间内四等分 + 顶部寄存器区 + 区间外），因此接入新 DUT 时只改 cfg、不用改 covergroup。
 
 ### 覆盖率口径（重要）
 
@@ -316,14 +351,24 @@ vrf_axil_slv_ref #(AW=32, DW=32, ID=4, RDY_DLY_MIN=0, RDY_DLY_MAX=2)
 | 排除项 | 原因 |
 |---|---|
 | `cp_resp` 的 `EXOKAY` | AXI4-Lite 协议不使用 EXOKAY |
-| `cp_resp` 的 `SLVERR` / `DECERR` | 当前被测从端 `bresp/rresp` 固定返回 OKAY，不产生错误响应 |
-| `cp_id` 的 `[1:15]` | 当前被测从端 `bid/rid` 恒为 0 |
+| `cp_resp` 的 `SLVERR` / `DECERR` | DUT 不产生错误响应时排除（由编译期开关控制） |
+| `cp_id` 的 `[1:15]` | DUT 的 `bid/rid` 恒为 0 时排除（由编译期开关控制） |
 | `cp_strb` 的 `4'b0000` | 结构非法：AXI 写事务必须至少选通一个字节，且写激励约束已禁止全零选通 |
 | `cx_dir_strb` 的读方向列 | 读事务无字节选通语义（`cp_strb` 已用 `coverpoint ... iff (dir == WR)` 限定为写方向） |
 | `cx_dir_resp` 的异常响应列 | 与 `cp_resp` 的排除项保持一致 |
 
-> **接入新 DUT 时须复核**：若新 DUT 会返回 SLVERR/DECERR、或使用非 0 的 `bid/rid`，
-> 必须从 `vrf_axil_cov.svh` 中移除对应的 `ignore_bins`，否则会掩盖真实覆盖漏洞。
+**能力开关（编译期）**：异常响应与非 0 ID 的 bin 是否**存在**由编译期开关决定
+（`+define+VRF_AXIL_COV_HAS_ERR` / `+define+VRF_AXIL_COV_HAS_ID`），
+`cfg.has_err_resp` / `cfg.has_id` 是 API 侧声明，两者必须一致，否则构造覆盖率收集器即 `$fatal`：
+
+```powershell
+# DUT 会产生 SLVERR/DECERR 或非 0 ID 时（须同时把 cfg.has_err_resp / cfg.has_id 置 1）
+vlog -mfcu -cuname <test>_cu -sv -work <lib> +define+VRF_AXIL_COV_HAS_ERR +define+VRF_AXIL_COV_HAS_ID -f bench/scripts/filelist.f
+```
+
+> **为什么是编译期开关**：ModelSim SE-64 2020.4 不支持 covergroup 参数端口（`vlog-13069`），
+> 且 `ignore_bins` 上的运行期 `iff` 条件在 elaboration 期即固化（构造后修改不生效，并产生 `vsim-8549` 告警）。
+> 因此采用「按能力开关生成不同 bin 定义」的编译期方案 + cfg 一致性校验，避免接入新 DUT 时漏改而掩盖覆盖漏洞。
 
 UCDB 由脚本 `coverage save -onexit <file>.ucdb` 生成，可用 `vcover report -detail <file>.ucdb` 查看明细。
 
@@ -342,7 +387,8 @@ sb.mon_h      = mon;    // 宽监视通道
 | `n_issued` / `n_checked` / `n_pass` / `n_fail` / `n_skip` / `n_repro` | 发起数 / 参与比对 / 通过 / 失败 / 跳过 / 复现重注 |
 | `fail_q` | 失败事务清单 |
 
-比对维度：地址一致性、写数据与字节选通一致性、读数据一致性（对模型预期）、响应合法性、事务 ID。
+比对维度：地址一致性、写数据与字节选通一致性、读数据一致性（对模型预期）、响应合法性、事务 ID
+（ID 是否检查与期望值取自 `cfg.exp_id_check` / `cfg.exp_id_value`，DUT 能力差异不写死在库内）。
 
 配对方式：按方向分离队列（写/读各一条），驱动侧保证同方向单笔未完成，故可确定性配对。
 
@@ -441,11 +487,12 @@ env.report();
 | 5 | `p_rresp_legal` / `p_bresp_legal` | 响应只能取 OKAY/SLVERR/DECERR |
 | 6 | `p_aw_timeout` / `p_w_timeout` / `p_ar_timeout` / `p_b_timeout` / `p_r_timeout` | 握手停滞超时 |
 
-挂接方式（编译期由 `+define+` 选择目标）：
+挂接方式：**bind 语句由使用方在自己的用例文件中给出**（库本体不含 DUT 名），编译期由 `+define+` 选择目标：
 
 ```systemverilog
-`ifdef VRF_AXIL_BIND_DVP2AXI
-  bind DVP2axi_stream vrf_axil_chk u_vrf_axil_chk (. *);
+// 写在被测 DUT 对应用例文件里（如 bench/tb/tb_xxx.sv）
+`ifdef VRF_AXIL_BIND_MY_DUT
+  bind MY_DUT vrf_axil_chk u_vrf_axil_chk (. *);
 `endif
 ```
 
@@ -476,11 +523,13 @@ env.report();
 
 ### `vrf_axil_done_ctrl`
 
-| 静态成员 | 说明 |
+| 静态成员 / 方法 | 说明 |
 |---|---|
-| `pending` | 未完成事务计数（提交 +1、比对完成 -1） |
+| `pending` | 未完成事务计数（只由 `raise()` / `drop()` 修改） |
+| `raise(n=1)` | 登记 n 笔待完成事务（提交事务前调用） |
+| `drop()` | 释放一笔已完成比对的事务；`pending` 已为 0 时按**断言告警**处理（计入 `assert_fail_cnt` 并打印 ERROR），不做静默钳位 |
 | `seq_done` | sequence 是否已产生完全部测试向量 |
-| `all_done` | 全部完成标志 |
+| `all_done` | 全部完成标志（`seq_done` 且 `pending` 归零时置位） |
 | `reset()` | 清零 |
 
 ---
@@ -511,6 +560,9 @@ powershell -File bench/scripts/run.ps1 -Test tb_vrf_axil_demo
 # DVP2axi_stream 接入示例
 powershell -File bench/scripts/run.ps1 -Test tb_dvp2ax_stream
 
+# 监视器复位窗口定向用例（AW 已握手、W 未握手期间拉复位，缺陷 A1 的回归）
+powershell -File bench/scripts/run.ps1 -Test tb_vrf_axil_rst_window
+
 # 指定种子复现
 powershell -File bench/scripts/run.ps1 -Test tb_dvp2ax_stream -Seed 12345
 
@@ -536,11 +588,11 @@ powershell -File bench/scripts/regression.ps1 -Seeds "1,2,3" -LogDir log_alt
 > 相对路径以项目根目录为基准，绝对路径按原样使用；目录按字面路径创建（通配字符如 `log[1]` 不会
 > 被展开成别的目录）。
 >
-> 注意：工作库固定在项目根目录（`work_demo` / `work_dvp2axi`）。为避免并发运行同一用例时
+> 注意：工作库固定在项目根目录（`work_demo` / `work_dvp2axi` / `work_rstw`）。为避免并发运行同一用例时
 > 互相覆盖库、互删库锁，`run.ps1` 会在**工程根目录**写一个占用标记 `.vrf_axil_owner_<lib>`
 > （记录 PID，原子创建）：
 > - 标记对应进程仍在运行时**直接以退出码 3 拒绝**；进程已结束的陈旧标记会被接管；
-> - `-Clean` 会先确认 `work` / `work_demo` / `work_dvp2axi` 都没有被其他存活运行占用，再执行删除。
+> - `-Clean` 会先确认 `work` / `work_demo` / `work_dvp2axi` / `work_rstw` 都没有被其他运行占用，再执行删除。
 >
 > 工作库是否已初始化以 vlib 生成的 `<lib>/_info` 为准，空目录不会被当成有效库。
 
@@ -552,6 +604,13 @@ powershell -File bench/scripts/regression.ps1 -Seeds "1,2,3" -LogDir log_alt
 | `+n_rand=<n>` | 覆盖随机事务数 |
 | `+log_dir=<path>` | 日志与报告目录 |
 | `+fault_inject=1` | 故障注入模式（仅 demo 用例） |
+
+编译期开关（`+define+`，非 plusarg）：
+
+| 宏 | 说明 |
+|---|---|
+| `VRF_AXIL_BIND_REF` / `VRF_AXIL_BIND_DVP2AXI` | 选择用例文件中 bind 语句的目标（由 `run.ps1 -Test` 自动选择；`tb_vrf_axil_rst_window` 不传） |
+| `VRF_AXIL_COV_HAS_ERR` / `VRF_AXIL_COV_HAS_ID` | 覆盖率能力开关：DUT 会产生错误响应 / 非 0 事务 ID 时定义（须与 `cfg` 一致，见 §11） |
 
 ### 17.4 输出文件
 
@@ -588,9 +647,23 @@ powershell -File bench/scripts/regression.ps1 -Seeds "1,2,3" -LogDir log_alt
      MY_DUT u_dut (.*);
    endmodule
    ```
-2. **加 bind 目标**：在 `bench/lib/Chk/vrf_axil_chk.sv` 中按 `+define+` 增加一条 `bind MY_DUT vrf_axil_chk ...`，并在 `run.ps1` 的 `switch` 中登记编译模式。
-3. **加寄存器映射**：在 `vrf_axil_regmodel` 中新增 `build_xxx_map()`，并在 `run.ps1`/用例里设置 `cfg.reg_map`。
-4. **写测试用例**：复制 `bench/tb/tb_dvp2ax_stream.sv`，替换挂具与寄存器偏移常量。
-5. **加入文件列表**：在 `filelist.f` 末尾追加挂具与用例文件。
+2. **加 bind（写在自己的用例文件里）**：在用例文件中加
+   ```systemverilog
+   `ifdef VRF_AXIL_BIND_MY_DUT
+     bind MY_DUT vrf_axil_chk u_vrf_axil_chk (. *);
+   `endif
+   ```
+   并在 `run.ps1` / `regression.ps1` 的 `switch` / `ValidateSet` 中登记该 `+define+` 与工作库名
+   （库本体 `bench/lib/Chk/vrf_axil_chk.sv` 不需要修改）。
+3. **加寄存器映射**：在 `vrf_axil_regmodel` 中新增 `build_xxx_map()` 并在 `build_map()` 的 `case` 中登记，
+   用例里设置 `cfg.reg_map = "XXX"`（未设置即 `$fatal`）。若 DUT 有特殊写副作用，
+   派生 `vrf_axil_wr_cb` 实现回调并在自己的 map 中 `reg_special_cb()` 注册；
+   未映射地址的行为用 map 内的 `unmap_resp` / `unmap_rdata` 配置。
+4. **按能力设置开关**：DUT 会产生错误响应 / 非 0 ID 时，同时设置 `cfg.has_err_resp`/`cfg.has_id` 与
+   编译期 `+define+VRF_AXIL_COV_HAS_ERR` / `VRF_AXIL_COV_HAS_ID`，并按需设置 `cfg.cov_addr_lo/hi`
+   （覆盖率地址区间）与 `cfg.exp_id_check`/`cfg.exp_id_value`（ID 判定）。
+5. **写测试用例**：复制 `bench/tb/tb_dvp2ax_stream.sv`，替换挂具与寄存器偏移常量。
+6. **加入文件列表**：在 `filelist.f` 末尾追加挂具与用例文件。
 
-> 库本体（`bench/lib`）在接入新 DUT 时无需修改。
+> 库本体（`bench/lib`）在接入新 DUT 时无需修改：DUT 名、寄存器偏移、副作用、能力开关、
+> 覆盖率地址区间与 bind 目标都在 cfg / map / 用例文件中给出。

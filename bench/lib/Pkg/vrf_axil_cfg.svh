@@ -24,7 +24,7 @@ class vrf_axil_cfg;
   int unsigned addr_min           = 32'h00;
   int unsigned addr_max           = 32'h80;
   int unsigned bringup_probe_addr = 32'h80;   // 连通性自检使用的探针寄存器地址
-  string       reg_map            = "DVP2AXI"; // 寄存器映射：DVP2AXI / REF_SLAVE
+  string       reg_map            = "";  // 寄存器映射名，由用例显式指定（取值与实现在寄存器模型文件内）
 
   // ------------------------------ 驱动器行为模型（可空） ------------------------------
   int aw_delay_min     = 0,  aw_delay_max     = 3;
@@ -45,9 +45,26 @@ class vrf_axil_cfg;
   bit enable_timeout_check   = 1;
   int timeout_cycles         = 200;
 
+  // ------------------------------ 响应 ID 判定（DUT 能力差异不写死在库内） ------------------------------
+  bit          exp_id_check = 1;   // 是否检查响应通道的事务 ID
+  int unsigned exp_id_value = 0;   // 期望的响应 ID（本 DUT 的 bid/rid 恒为 0）
+
   // ------------------------------ 连通性自检与覆盖率 ------------------------------
   bit enable_bringup_check = 1;
   bit enable_coverage      = 1;
+
+  // 覆盖率能力开关（本 DUT 能否表现出对应行为）：
+  //   异常响应与非 0 ID 的 bin 是否计入覆盖率分母，由**编译期**开关决定
+  //   （ModelSim 2020.4 不支持 covergroup 参数端口，运行期 iff 亦在 elaboration 期固化）：
+  //     +define+VRF_AXIL_COV_HAS_ERR  —— DUT 会产生 SLVERR/DECERR
+  //     +define+VRF_AXIL_COV_HAS_ID   —— DUT 会返回非 0 事务 ID
+  //   这里的 cfg 开关是 API 侧声明，构造覆盖率收集器时与编译期开关做一致性校验（不一致即 $fatal）。
+  bit          has_err_resp = 0;
+  bit          has_id       = 0;
+  // 覆盖率地址区间上下限：覆盖点的地址区间按此归一为「四等分 + 顶部寄存器区 + 区间外」，
+  // 使 bin 定义与具体 DUT 的地址布局解耦（默认对应 0x00~0x80 的寄存器空间）
+  int unsigned cov_addr_lo  = 32'h00;
+  int unsigned cov_addr_hi  = 32'h80;
 
   // ------------------------------ 失败用例自动化复现 ------------------------------
   bit    enable_repro       = 0;

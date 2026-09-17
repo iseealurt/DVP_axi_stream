@@ -16,7 +16,7 @@ class vrf_axil_monitor #(
 
   virtual vrf_axil_mnt_if #(AWIDTH, DWIDTH, IDWIDTH) mnt_vif;
   vrf_axil_cfg      cfg;
-  vrf_axil_regmodel model;
+  vrf_axil_regmodel #(DWIDTH) model;
   mailbox #(txn_t)  obs_mbx;     // 观测事务，送往计分板
   mailbox #(txn_t)  wr_pend_mbx; // 已接受、等待 B 响应的写事务
   mailbox #(txn_t)  rd_pend_mbx; // 已接受、等待 R 响应的读事务
@@ -39,7 +39,7 @@ class vrf_axil_monitor #(
   function new(
     vrf_axil_cfg cfg,
     virtual vrf_axil_mnt_if #(AWIDTH, DWIDTH, IDWIDTH) mnt_vif,
-    vrf_axil_regmodel model,
+    vrf_axil_regmodel #(DWIDTH) model,
     mailbox #(txn_t) obs_mbx
   );
     this.cfg     = cfg;
@@ -49,6 +49,9 @@ class vrf_axil_monitor #(
     wr_pend_mbx  = new();
     rd_pend_mbx  = new();
     aw_pend = 0; w_pend = 0; ar_pend = 0;
+    // 暂存寄存器一并给初值，避免复位窗口期的半笔写在观测对象里带上 X
+    aw_addr = '0; w_data = '0; w_strb = '0;
+    ar_addr = '0; rd_pred = '0; rd_pred_resp = OKAY;
   endfunction
 
   function void open_log();
@@ -77,6 +80,31 @@ class vrf_axil_monitor #(
     txn_t o;
     forever begin
       @(mnt_vif.cb);
+
+      // ---- 复位：清空全部挂起状态与暂存寄存器 ----
+      // aw_pend/w_pend 若滞留到复位之后，复位后的新 W 会与复位前的旧 AW 地址错配
+      // （「AW 已握手、W 未握手」窗口期复位即为此情形）；暂存寄存器一并无意义。
+      // 同时把「只被部分接受（仅 AW 或仅 W 握手）的写」作为被打断的观测上交：
+      // 该事务在驱动侧已被判为复位打断，若无观测上报，计分板的完成计数会配平失败
+      // 且这半笔总线活动会被静默丢弃。
+      if (!mnt_vif.cb.arstn) begin
+        if (aw_pend || w_pend) begin
+          o = new("mon_wr_rst");
+          o.txn_dir         = AXIL_WR;
+          o.obs_addr        = aw_addr;
+          o.obs_wdata       = w_data;
+          o.obs_strb        = w_strb;
+          o.obs_interrupted = 1'b1;
+          o.txn_result      = PASS;
+          aw_pend = 0;
+          w_pend  = 0;
+          wr_pend_mbx.put(o);
+        end
+        ar_pend = 0;
+        aw_pend = 0; w_pend = 0;
+        aw_addr = '0; w_data = '0; w_strb = '0;
+        continue;
+      end
 
       if (!vrf_axil_ctrl::mon_enable) begin
         aw_pend = 0; w_pend = 0; ar_pend = 0;

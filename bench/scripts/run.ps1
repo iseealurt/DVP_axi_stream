@@ -10,8 +10,9 @@
   说明：
     - 库自测 demo 与 DVP2axi_stream 接入示例的 bind 目标不同，
       脚本按 -Test 自动选择编译模式（VRF_AXIL_BIND_REF / VRF_AXIL_BIND_DVP2AXI），
-      并为每个用例使用独立工作库（work_demo / work_dvp2axi），
+      并为每个用例使用独立工作库（work_demo / work_dvp2axi / work_rstw），
       避免不同 -define 编译出的同名单元互相覆盖。
+      tb_vrf_axil_rst_window 为监视器靶向定向用例（不实例化 DUT），不传 bind 目标。
     - 仿真日志与报告输出到 -LogDir（默认 log/）。
       -LogDir 只拒绝会破坏 Tcl 花括号引用或子进程参数引用的字符（{ }、双引号、换行），
       允许含空格的路径（工程位于 "C:\Users\John Doe\..." 这类目录时依然可用）。
@@ -27,7 +28,7 @@
       且会先确认这三个库都没有被其他存活运行占用，不动其他目录。
 #>
 param(
-  [ValidateSet("tb_vrf_axil_demo", "tb_dvp2ax_stream")]
+  [ValidateSet("tb_vrf_axil_demo", "tb_dvp2ax_stream", "tb_vrf_axil_rst_window")]
   [string] $Test = "tb_dvp2ax_stream",
   [int]    $Seed = 0,
   [int]    $Nrand = 0,
@@ -101,8 +102,10 @@ $nrandGiven = $PSBoundParameters.ContainsKey('Nrand')
 
 # ------------------------------ 按测试选择 bind 目标与独立工作库 ------------------------------
 switch ($Test) {
-  "tb_vrf_axil_demo" { $bindDef = "+define+VRF_AXIL_BIND_REF";     $libName = "work_demo" }
-  "tb_dvp2ax_stream" { $bindDef = "+define+VRF_AXIL_BIND_DVP2AXI"; $libName = "work_dvp2axi" }
+  "tb_vrf_axil_demo"       { $bindDef = "+define+VRF_AXIL_BIND_REF";     $libName = "work_demo" }
+  "tb_dvp2ax_stream"       { $bindDef = "+define+VRF_AXIL_BIND_DVP2AXI"; $libName = "work_dvp2axi" }
+  # 监视器靶向定向用例：不实例化 DUT（直接驱动监视视角接口），故不需要 bind 目标
+  "tb_vrf_axil_rst_window" { $bindDef = "";                              $libName = "work_rstw" }
 }
 
 # ------------------------------ 仿真工具可用性 ------------------------------
@@ -122,7 +125,7 @@ $libDir   = Join-Path $root $libName
 #   2) 更重要的是不必为了写标记而提前创建库目录——库目录必须由 vlib 创建，
 #      提前建出空目录会让后面的 vlib 判定失效、库未被初始化。
 $ownerTag = Join-Path $root ".vrf_axil_owner_$libName"
-$allLibs  = @("work", "work_demo", "work_dvp2axi")
+$allLibs  = @("work", "work_demo", "work_dvp2axi", "work_rstw")
 
 # 读取某工作库的占用者 PID：无标记 / 标记不可解析 / 进程已退出 / 就是本进程，都算「无占用」
 function Get-LibOwner([string]$lib) {
@@ -207,7 +210,8 @@ if (-not (Test-Path -LiteralPath (Join-Path $libDir "_info") -PathType Leaf)) {
 }
 
 # -cuname：显式为多文件编译单元命名，保证编译单元作用域的 bind 一定参与 elaboration
-$vlogArgs = @("-mfcu", "-cuname", "${Test}_cu", "-sv", "-work", $libName, $bindDef)
+$vlogArgs = @("-mfcu", "-cuname", "${Test}_cu", "-sv", "-work", $libName)
+if ($bindDef -ne "") { $vlogArgs += $bindDef }
 if ($Cover) { $vlogArgs += @("-cover", "bcesft") }
 $vlogArgs += @("-f", "bench/scripts/filelist.f")
 

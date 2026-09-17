@@ -23,3 +23,4 @@ bench/lib/Chk/vrf_axil_chk.sv
 # ------------------------------ 测试用例 ------------------------------
 bench/tb/tb_vrf_axil_demo.sv
 bench/tb/tb_dvp2ax_stream.sv
+bench/tb/tb_vrf_axil_rst_window.sv

@@ -43,7 +43,7 @@ class vrf_axil_sequence #(
         t = directed_q[i];
         if (t == null) continue;
         seq_mbx.put(t);
-        vrf_axil_done_ctrl::pending++;
+        vrf_axil_done_ctrl::raise();
       end
     end
 
@@ -58,7 +58,7 @@ class vrf_axil_sequence #(
         vrf_axil_ctrl::assert_fail_cnt++;
       end else begin
         seq_mbx.put(t);
-        vrf_axil_done_ctrl::pending++;
+        vrf_axil_done_ctrl::raise();
       end
     end
 

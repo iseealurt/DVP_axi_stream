@@ -22,7 +22,7 @@ class vrf_axil_env #(
   typedef vrf_axil_txn #(AWIDTH, DWIDTH, IDWIDTH) txn_t;
 
   vrf_axil_cfg           cfg;
-  vrf_axil_regmodel      model;
+  vrf_axil_regmodel #(DWIDTH) model;
   vrf_axil_sequencer_t   seqr;
   vrf_axil_sequence_t    seq;
   vrf_axil_driver_t      drv;
@@ -52,8 +52,7 @@ class vrf_axil_env #(
     vrf_axil_ctrl::reset();
     vrf_axil_done_ctrl::reset();
     model = new();
-    if (cfg.reg_map == "REF_SLAVE") model.build_ref_slave_map();
-    else                            model.build_dvp2axi_stream_map();
+    model.build_map(cfg.reg_map);   // 映射名由 cfg 选择，具体实现在寄存器模型文件内
     cov = new(cfg);
   endfunction
 
@@ -86,6 +85,7 @@ class vrf_axil_env #(
 
     seqr = new();
     seqr.repro_enable = cfg.enable_repro;
+    seqr.clk_vif      = mst_vif;      // 仲裁空转按接口时钟节拍，时钟取自连接表
     seq  = new(cfg, seqr.from_seq);
     drv  = new(cfg, mst_vif, slv_vif, seqr.to_drv, done_mbx);
     mon  = new(cfg, mnt_vif, model, obs_mbx);
@@ -136,13 +136,13 @@ class vrf_axil_env #(
   // 一键导入定向测试队列（mailbox.put 为任务，故本接口为任务）
   task import_directed_queue(txn_t q[$]);
     seqr.import_directed_queue(q);
-    vrf_axil_done_ctrl::pending += q.size();
+    vrf_axil_done_ctrl::raise(q.size());
   endtask
 
   // 提交单笔定向事务
   task submit(txn_t t);
     seqr.from_env.put(t);
-    vrf_axil_done_ctrl::pending++;
+    vrf_axil_done_ctrl::raise();
   endtask
 
   // 批量提交随机事务
@@ -158,7 +158,7 @@ class vrf_axil_env #(
         vrf_axil_ctrl::assert_fail_cnt++;
       end else begin
         seqr.from_seq.put(t);
-        vrf_axil_done_ctrl::pending++;
+        vrf_axil_done_ctrl::raise();
         n_rand_submit++;
       end
     end

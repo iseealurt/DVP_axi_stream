@@ -18,7 +18,7 @@
     - 失败轮次的随机种子被记录，可直接用 run.ps1 -Seed <n> 复现。
 #>
 param(
-  [ValidateSet("tb_vrf_axil_demo", "tb_dvp2ax_stream")]
+  [ValidateSet("tb_vrf_axil_demo", "tb_dvp2ax_stream", "tb_vrf_axil_rst_window")]
   [string] $Test     = "tb_dvp2ax_stream",
   [string] $Seeds    = "1,2,3,4,5",
   [int]    $Nrand    = 0,

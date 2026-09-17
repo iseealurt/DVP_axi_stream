@@ -20,7 +20,7 @@ class vrf_axil_bringup #(
   virtual vrf_axil_mst_if #(AWIDTH, DWIDTH, IDWIDTH) mst_vif;
   virtual vrf_axil_mnt_if #(AWIDTH, DWIDTH, IDWIDTH) mnt_vif;
   vrf_axil_cfg      cfg;
-  vrf_axil_regmodel model;
+  vrf_axil_regmodel #(DWIDTH) model;
 
   // 本轮验证涉及的总线信号
   string sig_names[$] = '{
@@ -62,7 +62,7 @@ class vrf_axil_bringup #(
     vrf_axil_cfg cfg,
     virtual vrf_axil_mst_if #(AWIDTH, DWIDTH, IDWIDTH) mst_vif,
     virtual vrf_axil_mnt_if #(AWIDTH, DWIDTH, IDWIDTH) mnt_vif,
-    vrf_axil_regmodel model
+    vrf_axil_regmodel #(DWIDTH) model
   );
     this.cfg     = cfg;
     this.mst_vif = mst_vif;

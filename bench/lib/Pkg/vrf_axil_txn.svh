@@ -1,6 +1,6 @@
 // =============================================================================
 // AXI4-Lite 事务类
-//   - 随机激励：方向、地址、数据、字节选通、主机 ID
+//   - 随机激励：方向、地址、数据、字节选通
 //   - 随机范围控制：地址上下限、strb 模式（由 sequence/config 注入）
 //   - 时序控制：AW/W 分离间隔、B/R 通道反压延迟（定向用例可单独指定）
 //   - 观测回填：monitor 采样到的地址/数据/选通/响应/ID
@@ -19,7 +19,6 @@ class vrf_axil_txn #(
   rand  logic [AWIDTH-1:0]    txn_addr;    // 本次地址
   rand  logic [DWIDTH-1:0]    txn_data;    // 本次写数据
   rand  logic [STRBWIDTH-1:0] txn_strb;    // 字节选通，仅写事务有意义
-  randc logic [IDWIDTH-1:0]   txn_mst_id;  // 主机 ID，按周期遍历取值
 
   // ------------------------------ 随机范围控制（非随机） ------------------------------
   logic [AWIDTH-1:0] addr_min  = '0;                    // 地址下限
@@ -97,7 +96,6 @@ class vrf_axil_txn #(
     txn_addr   = '0;
     txn_data   = '0;
     txn_strb   = '0;
-    txn_mst_id = '0;
     txn_resp_default();
   endfunction
 
@@ -125,7 +123,6 @@ class vrf_axil_txn #(
     this.txn_addr            = rhs.txn_addr;
     this.txn_data            = rhs.txn_data;
     this.txn_strb            = rhs.txn_strb;
-    this.txn_mst_id          = rhs.txn_mst_id;
     this.addr_min            = rhs.addr_min;
     this.addr_max            = rhs.addr_max;
     this.strb_mode           = rhs.strb_mode;
@@ -162,9 +159,9 @@ class vrf_axil_txn #(
   function string convert2string();
     string dir_str;
     dir_str = (txn_dir == AXIL_WR) ? "WR" : "RD";
-    return $sformatf("%s[%0d] %s addr=0x%0h data=0x%0h strb=%b mst_id=%0d",
+    return $sformatf("%s[%0d] %s addr=0x%0h data=0x%0h strb=%b",
                      txn_name, txn_id, dir_str,
-                     txn_addr, txn_data, txn_strb, txn_mst_id);
+                     txn_addr, txn_data, txn_strb);
   endfunction
 
   function string convert2string_obs();
