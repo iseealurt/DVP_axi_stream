@@ -1,9 +1,10 @@
 `timescale 1ns/1ps
 // =============================================================================
-// DVP2axi_stream 接入示例：以 VRF_AXI4L 库对 RTL/DVP2axi_stream.v 的
+// DVP2axis 接入示例：以 VRF_AXI4L 库对 RTL/DVP2axis.sv 的
 // AXI4-Lite 寄存器块做完整功能验证。
 //   演示内容：
-//     - 挂具模块 + DVP2axi_stream 全部端口 `.*` 通配符自动连接
+//     - 挂具模块 + DVP2axis 全部端口 `.*` 通配符自动连接
+//       （AXI4-Lite 为接口端口 slv_if_axil.slv，由挂具内的接口实例按名连接）
 //     - 细粒度环境 API：connect / start / submit / wait_idle / stop / report
 //     - 定向功能测试（对标历史仿真报告的覆盖项）+ 受约束随机回归
 //     - 内部事件注入（层次化 force）后由寄存器模型同步预测
@@ -16,11 +17,14 @@
 //   编译期按 +define 选择目标，避免未实例化的目标产生未解析引用。
 // -----------------------------------------------------------------------------
 `ifdef VRF_AXIL_BIND_DVP2AXI
-  bind DVP2axi_stream vrf_axil_chk u_vrf_axil_chk (. *);
+  // 检查器挂在挂具上：挂具内的 AXI4-Lite 信号与 DUT 接口端口逐根直连，
+  // 电气上等价于挂在 DUT 端口；而 DUT 的接口端口受 modport 方向约束，
+  // 直接按名连接检查器不可行，故绑定挂具。
+  bind vrf_axil_harness_dvp2axi vrf_axil_chk u_vrf_axil_chk (.*);
 `endif
 
 // -----------------------------------------------------------------------------
-// 挂具：DVP2axi_stream 全部端口按名通配符自动连接
+// 挂具：DVP2axis 全部端口按名通配符自动连接
 //   本轮验证范围为 AXI4-Lite 寄存器接口，DVP 输入与 AXI-Stream 输出端口
 //   仅作占位声明（不 tie-off），由连通性自检报告头统一标注。
 // -----------------------------------------------------------------------------
@@ -40,15 +44,48 @@ module vrf_axil_harness_dvp2axi (
   wire [7:0]   pdin;
   wire         pvref;
   wire         phref;
-  wire         axis_tready;
-  wire         axis_tvalid;
-  wire [255:0] axis_tdata;
-  wire [31:0]  axis_tstrb;
-  wire [31:0]  axis_tkeep;
-  wire         axis_tlast;
+
+  // AXI-Stream 输出为接口端口（本模块是 AXI-Stream 主机）：仅作占位连接，
+  // 不 tie-off、不驱动 tready，由报告头统一标注为不纳入验证
+  mst_if_axis #(.DWIDTH(256)) axis_m (
+    .aclk    (aclk),
+    .aresetn (aresetn)
+  );
+
+  // ------------------------ DUT 的 AXI4-Lite 接口实例 ------------------------
+  // DVP2axis 是 AXI-Lite 从机，故用从机视角接口 slv_if_axil（与 DUT 端口一致）；
+  // 接口参数必须与下方 DVP2axis 的 AXI_LITE_* 参数一致（接口参数不能在端口处重载）
+  slv_if_axil #(.AWIDTH(32), .DWIDTH(32), .IDWIDTH(4)) slv_axil (
+    .aclk    (aclk),
+    .aresetn (aresetn)
+  );
+
+  // 挂具 AXI4-Lite 信号 <-> DUT 接口 逐根直连（保持原信号级挂接方式不变）
+  assign slv_axil.awvalid = awvalid;              // 主机请求 -> DUT 从机接口
+  assign slv_axil.awaddr  = awaddr;
+  assign slv_axil.awport  = awport;
+  assign slv_axil.wvalid  = wvalid;
+  assign slv_axil.wdata   = wdata;
+  assign slv_axil.wstrb   = wstrb;
+  assign slv_axil.bready  = bready;
+  assign slv_axil.arvalid = arvalid;
+  assign slv_axil.araddr  = araddr;
+  assign slv_axil.arport  = arport;
+  assign slv_axil.rready  = rready;
+  assign awready          = slv_axil.awready;     // DUT 从机响应 -> 挂具
+  assign wready           = slv_axil.wready;
+  assign bvalid           = slv_axil.bvalid;
+  assign bid              = slv_axil.bid;
+  assign bresp            = slv_axil.bresp;
+  assign arready          = slv_axil.arready;
+  assign rvalid           = slv_axil.rvalid;
+  assign rdata            = slv_axil.rdata;
+  assign rresp            = slv_axil.rresp;
+  assign rid              = slv_axil.rid;
 
   // ------------------------ 被测 DUT：全部端口按名自动连接 ------------------------
-  DVP2axi_stream #(
+  // slv_axil 端口与上方接口实例同名，由 `.*` 按名连接
+  DVP2axis #(
     .DVP_DWIDTH            (8),
     .PIX_WIDTH             (16),
     .AXI_ID_WIDTH          (4),
@@ -354,7 +391,7 @@ module tb_dvp2ax_stream;
 
     fork
       begin
-        wait (u_harness.u_dut.bvalid === 1'b1);
+        wait (u_harness.u_dut.slv_axil.bvalid === 1'b1);
         @(posedge aclk);
         aresetn = 1'b0;
         repeat (3) @(posedge aclk);
@@ -387,7 +424,7 @@ module tb_dvp2ax_stream;
 
     $display("================================================================");
     $display(" VRF_AXI4L 接入示例 : tb_dvp2ax_stream");
-    $display(" 被测对象 : RTL/DVP2axi_stream.v 的 AXI4-Lite 寄存器块");
+    $display(" 被测对象 : RTL/DVP2axis.sv 的 AXI4-Lite 寄存器块");
     $display(" 随机种子 : %0d  (可用 +seed=%0d 复现)", seed, seed);
     $display("================================================================");
 
@@ -452,7 +489,7 @@ module tb_dvp2ax_stream;
 
     ok = env.is_pass();
     $display("================================================================");
-    $display(" DVP2axi_stream 寄存器块验证结论 : %s", ok ? "PASSED" : "FAILED");
+    $display(" DVP2axis 寄存器块验证结论 : %s", ok ? "PASSED" : "FAILED");
     $display(" 总检查项 : 事务比对 %0d + 协议断言 %0d + 连通性自检 %0d = %0d",
              env.sb.n_checked, vrf_axil_ctrl::assert_chk_cnt,
              env.bringup.n_checked, env.total_checks());
