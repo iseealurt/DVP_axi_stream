@@ -10,8 +10,18 @@
 //     数据通路 : AXI-Stream 主机 mst_if_axis.mst   —— 输出图像流（占位待实现）
 //     图像输入 : pclk 域离散信号（pdin/pvref/phref）
 //
+//   时钟域：
+//     aclk 域 —— AXI4-Lite 寄存器块、AXI-Stream 输出
+//     pclk 域 —— DVP 采集与像素/行计数
+//     跨域     —— 见第 7、8 节：配置参数 aclk->pclk、状态计数 pclk->aclk，
+//                 均采用「格雷码编码 -> 2 级同步 -> 格雷码解码」机制
+//
 //   寄存器行为继承 RTL/DVP2axi_stream.v（映射见 Doc/Reg_v_0_0.md）：
 //     复位默认值 / wstrb 字节选通 / W1C / CTRL 自清零 / 粘滞事件 / ID 恒 0 / resp 恒 OKAY
+//
+//   注释标记约定：
+//     // occupied —— 该处依赖尚未实现的数据通路行为，当前用占位常量/占位实现，
+//                    待 DVP 采集与 AXI-Stream 打包通路接入后替换
 //
 //   注意：接口位宽由外部接口实例决定（接口参数不能在端口处重载），
 //         模块的 AXI_LITE_* / AXI_STREAM_* 参数必须与接口实例保持一致。
@@ -47,7 +57,7 @@ module DVP2axis #(
 );
 
     // =====================================================================
-    // 1. 寄存器偏移（见 Doc/Reg_v_0_0.md）
+    // 1. 寄存器偏移与位定义（见 Doc/Reg_v_0_0.md）
     // =====================================================================
     localparam logic [7:0] ADDR_CTRL         = 8'h00;
     localparam logic [7:0] ADDR_STATUS       = 8'h04;
@@ -75,10 +85,19 @@ module DVP2axis #(
 
     localparam logic [AXI_LITE_DWIDTH-1:0] IP_VERSION = 32'h0001_0000;
 
-    // CTRL 自清零位（写 1 后自动回 0）
-    localparam int CTRL_BIT_SOFT_RST = 1;
-    localparam int CTRL_BIT_CLR_CNT  = 4;
-    localparam int CTRL_BIT_CLR_FIFO = 5;
+    // CTRL 位序号
+    localparam int CTRL_BIT_EN           = 0;
+    localparam int CTRL_BIT_SOFT_RST     = 1;   // 自清零
+    localparam int CTRL_BIT_SINGLE_SHOT  = 2;
+    localparam int CTRL_BIT_AUTO_RESTART = 3;
+    localparam int CTRL_BIT_CLR_CNT      = 4;   // 自清零
+    localparam int CTRL_BIT_CLR_FIFO     = 5;   // 自清零
+
+    // DVP_CTRL 位序号
+    localparam int DVP_BIT_PCLK_INV  = 0;
+    localparam int DVP_BIT_PVREF_POL = 1;
+    localparam int DVP_BIT_PHREF_POL = 2;
+    localparam int DVP_BIT_PIX_FMT   = 4;   // [6:4]
 
     // 事件 -> 状态位 的位号定义（唯一定义处，掩码与写动作都引用）
     localparam int ERR_BIT_FIFO_OVF   = 0;   // ERR_FLAG : [0]=fifo_overflow [1]=line_err
@@ -127,34 +146,36 @@ module DVP2axis #(
     logic [AXI_LITE_DWIDTH-1:0] reg_frame_cnt;
     logic [AXI_LITE_DWIDTH-1:0] reg_err_flag;
     logic [AXI_LITE_DWIDTH-1:0] reg_int_status;
-    logic [AXI_LITE_DWIDTH-1:0] reg_dbg_pix_cnt;
-    logic [AXI_LITE_DWIDTH-1:0] reg_dbg_line_cnt;
-    logic [AXI_LITE_DWIDTH-1:0] reg_dbg_beat_cnt;
+    logic [AXI_LITE_DWIDTH-1:0] reg_dbg_beat_cnt;  // AXI-Stream beat 计数（aclk 域）
 
     // =====================================================================
     // 4. 状态源与硬件事件
-    //    以下均为占位常量，待 DVP 采集/AXI-Stream 打包通路接入后替换为真实信号
     // =====================================================================
-    wire        status_busy         = 1'b0;
-    wire        status_frame_valid  = 1'b0;
-    wire        status_line_valid   = 1'b0;
-    wire        status_fifo_full    = 1'b0;
-    wire        status_fifo_empty   = 1'b0;
-    wire        status_axis_busy    = 1'b0;
-    wire [7:0]  status_fsm_state    = 8'h0;
-    wire [15:0] fifo_level          = 16'h0;
-    wire        fifo_full           = 1'b0;
-    wire        fifo_empty          = 1'b0;
-    wire        fifo_overflow       = 1'b0;
-    wire        fifo_underflow      = 1'b0;
+    // ---- 4.1 aclk 域状态源：占位常量，待 AXI-Stream 打包通路接入后替换 ----
+    wire        status_axis_busy    = 1'b0;   // occupied
+    wire        status_fifo_full    = 1'b0;   // occupied
+    wire        status_fifo_empty   = 1'b0;   // occupied
+    wire [15:0] fifo_level          = 16'h0;  // occupied
+    wire        fifo_full           = 1'b0;   // occupied
+    wire        fifo_empty          = 1'b0;   // occupied
+    wire        fifo_overflow       = 1'b0;   // occupied
+    wire        fifo_underflow      = 1'b0;   // occupied
 
-    wire frame_done_event     = 1'b0;
-    wire fifo_overflow_event  = 1'b0;
-    wire line_err_event       = 1'b0;
-    wire frame_err_event      = 1'b0;
-    wire axis_err_event       = 1'b0;
-    wire cfg_err_event        = 1'b0;
-    wire fifo_underflow_event = 1'b0;   // 仅经 FIFO_STATUS 暴露，不置位状态寄存器
+    wire frame_done_event     = 1'b0;         // occupied
+    wire fifo_overflow_event  = 1'b0;         // occupied
+    wire line_err_event       = 1'b0;         // occupied
+    wire frame_err_event      = 1'b0;         // occupied
+    wire axis_err_event       = 1'b0;         // occupied
+    wire cfg_err_event        = 1'b0;         // occupied
+    wire fifo_underflow_event = 1'b0;         // occupied；仅经 FIFO_STATUS 暴露
+
+    // ---- 4.2 pclk 域状态与计数源：跨到 aclk 侧供软件读回（见第 8 节）----
+    wire [7:0]  pclk_fsm_state   = 8'h0;      // occupied：pclk 域采集主状态机编码
+    wire        pclk_busy        = 1'b0;      // occupied：采集中
+    wire        pclk_frame_valid = 1'b0;      // occupied：pvref 有效（可用 pvref_act 直接接入）
+    wire        pclk_line_valid  = 1'b0;      // occupied：phref 有效（可用 phref_act 直接接入）
+    wire [AXI_LITE_DWIDTH-1:0] pclk_pix_cnt  = '0;   // occupied：当前行已接收像素数
+    wire [AXI_LITE_DWIDTH-1:0] pclk_line_cnt = '0;   // occupied：当前帧已接收行数
 
     // =====================================================================
     // 5. 公用函数（须先声明后使用）
@@ -188,19 +209,232 @@ module DVP2axis #(
         return cur & ~apply_wstrb('0, data, strb);
     endfunction
 
+    // 按偏移取配置寄存器当前值（读通路与跨域源共用；未命中返回 0）
+    function automatic logic [AXI_LITE_DWIDTH-1:0] cfg_val(input logic [7:0] offset);
+        cfg_val = '0;
+        for (int i = 0; i < N_CFG; i++) begin
+            if (offset == CFG_TAB[i].offset) cfg_val = cfg_reg[i];
+        end
+        return cfg_val;
+    endfunction
+
+    // 二进制 -> 格雷码
+    function automatic logic [AXI_LITE_DWIDTH-1:0] bin2gray(input logic [AXI_LITE_DWIDTH-1:0] bin);
+        return bin ^ (bin >> 1);
+    endfunction
+
+    // 格雷码 -> 二进制（逐位异或链）
+    function automatic logic [AXI_LITE_DWIDTH-1:0] gray2bin(input logic [AXI_LITE_DWIDTH-1:0] gray);
+        gray2bin[AXI_LITE_DWIDTH-1] = gray[AXI_LITE_DWIDTH-1];
+        for (int i = AXI_LITE_DWIDTH-2; i >= 0; i--) begin
+            gray2bin[i] = gray2bin[i+1] ^ gray[i];
+        end
+        return gray2bin;
+    endfunction
+
     // =====================================================================
-    // 6. 寄存器读回组合值与事件掩码
+    // 6. 地址译码
+    //    仅译低位偏移；高位非 0 视为未映射地址，不别名到寄存器区
+    // =====================================================================
+    wire [AXI_LITE_AWIDTH-1:0] wr_offset = slv_axil.awaddr - AXI_LITE_BASE_ADDR_OFFSET;
+    wire [AXI_LITE_AWIDTH-1:0] rd_offset = slv_axil.araddr - AXI_LITE_BASE_ADDR_OFFSET;
+    wire [7:0] wr_addr = wr_offset[7:0];
+    wire [7:0] rd_addr = rd_offset[7:0];
+    wire wr_hit = (wr_offset[AXI_LITE_AWIDTH-1:8] == '0);
+    wire rd_hit = (rd_offset[AXI_LITE_AWIDTH-1:8] == '0);
+
+    // =====================================================================
+    // 7. 跨时钟域：配置参数 aclk -> pclk
+    //    机制：aclk 域编码为格雷码并寄存 -> pclk 域 2 级同步 -> pclk 域解码
+    //    更新策略：
+    //      - DVP_CTRL.PVREF_POL 配置后立即生效（极性本身必须先可用，
+    //        否则无法判断 pvref 何时有效）
+    //      - 其余作用于 pclk 域的配置参数只在 pvref 有效边沿（帧边界）
+    //        由同一个更新脉冲统一加载，保证一帧内参数一致
+    //    说明：格雷码只保证相邻计数值单比特翻转；配置字为任意值时可能多比特
+    //          同时变化，这里依靠「帧边界更新 + 2 级同步」降低采到中间态的概率；
+    //          若后续需要严格保证，需改为握手/双缓冲确认机制
+    // =====================================================================
+    // ---- 7.1 PVREF_POL：立即生效（1 bit 的格雷码即其自身，仍走 2 级同步）----
+    wire pvref_pol_aclk = cfg_val(ADDR_DVP_CTRL)[DVP_BIT_PVREF_POL];
+
+    logic pvref_pol_s1 = 1'b0;
+    logic pvref_pol_s2 = 1'b0;
+
+    // ---- 7.2 pvref 极性校正与有效边沿检测（pclk 域）----
+    // 上升沿/下降沿各产生一个更新脉冲，统一用于加载下方影子配置
+    wire pvref_act = pvref_pol_s2 ? pvref : ~pvref;   // 1 = 帧有效
+    logic pvref_act_d = 1'b0;
+    wire pvref_rise =  pvref_act & ~pvref_act_d;
+    wire pvref_fall = ~pvref_act &  pvref_act_d;
+    wire cfg_upd_pulse = pvref_rise | pvref_fall;     // 帧边界更新脉冲
+
+    always_ff @(posedge pclk or negedge prst_n) begin
+        if (!prst_n) begin
+            pvref_pol_s1 <= 1'b0;
+            pvref_pol_s2 <= 1'b0;
+            pvref_act_d  <= 1'b0;
+        end else begin
+            pvref_pol_s1 <= pvref_pol_aclk;
+            pvref_pol_s2 <= pvref_pol_s1;
+            pvref_act_d  <= pvref_act;
+        end
+    end
+
+    // ---- 7.3 帧边界更新组：作用于 pclk 域的配置字 ----
+    localparam int CDC_FRM_CTRL        = 0;
+    localparam int CDC_FRM_DVP_CTRL    = 1;
+    localparam int CDC_FRM_IMG_WIDTH   = 2;
+    localparam int CDC_FRM_IMG_HEIGHT  = 3;
+    localparam int CDC_FRM_LINE_TOTAL  = 4;
+    localparam int CDC_FRM_FRAME_TOTAL = 5;
+    localparam int CDC_FRM_FIFO_THRES  = 6;
+    localparam int N_CDC_FRM           = 7;
+
+    // aclk 域源值（AXIS_* / INT_EN / SCRATCH 只在 aclk 域使用，不参与跨域）
+    wire [AXI_LITE_DWIDTH-1:0] cdc_frm_src [N_CDC_FRM];
+    assign cdc_frm_src[CDC_FRM_CTRL]        = reg_ctrl;   // 自清零位恒 0，见写通路 9.4
+    assign cdc_frm_src[CDC_FRM_DVP_CTRL]    = cfg_val(ADDR_DVP_CTRL);
+    assign cdc_frm_src[CDC_FRM_IMG_WIDTH]   = cfg_val(ADDR_IMG_WIDTH);
+    assign cdc_frm_src[CDC_FRM_IMG_HEIGHT]  = cfg_val(ADDR_IMG_HEIGHT);
+    assign cdc_frm_src[CDC_FRM_LINE_TOTAL]  = cfg_val(ADDR_LINE_TOTAL);
+    assign cdc_frm_src[CDC_FRM_FRAME_TOTAL] = cfg_val(ADDR_FRAME_TOTAL);
+    assign cdc_frm_src[CDC_FRM_FIFO_THRES]  = cfg_val(ADDR_FIFO_THRESHOLD);
+
+    // aclk 域：格雷码编码寄存
+    logic [AXI_LITE_DWIDTH-1:0] cdc_frm_gray_aclk [N_CDC_FRM];
+
+    always_ff @(posedge aclk or negedge aresetn) begin
+        if (!aresetn) begin
+            for (int i = 0; i < N_CDC_FRM; i++) cdc_frm_gray_aclk[i] <= '0;
+        end else begin
+            for (int i = 0; i < N_CDC_FRM; i++) cdc_frm_gray_aclk[i] <= bin2gray(cdc_frm_src[i]);
+        end
+    end
+
+    // pclk 域：2 级同步（声明即置 0：prst_n 未驱动时 pclk 域不向 AXIL 读回通路注入 X）
+    logic [AXI_LITE_DWIDTH-1:0] cdc_frm_gray_s1 [N_CDC_FRM] = '{default:'0};
+    logic [AXI_LITE_DWIDTH-1:0] cdc_frm_gray_s2 [N_CDC_FRM] = '{default:'0};
+    wire  [AXI_LITE_DWIDTH-1:0] cdc_frm_bin_pclk [N_CDC_FRM];
+
+    always_ff @(posedge pclk or negedge prst_n) begin
+        if (!prst_n) begin
+            for (int i = 0; i < N_CDC_FRM; i++) begin
+                cdc_frm_gray_s1[i] <= '0;
+                cdc_frm_gray_s2[i] <= '0;
+            end
+        end else begin
+            for (int i = 0; i < N_CDC_FRM; i++) begin
+                cdc_frm_gray_s1[i] <= cdc_frm_gray_aclk[i];
+                cdc_frm_gray_s2[i] <= cdc_frm_gray_s1[i];
+            end
+        end
+    end
+
+    for (genvar i = 0; i < N_CDC_FRM; i++) begin : g_frm_decode
+        assign cdc_frm_bin_pclk[i] = gray2bin(cdc_frm_gray_s2[i]);
+    end
+
+    // pclk 域影子配置：仅在帧边界统一加载，供后续 DVP 采集/打包通路按域引用
+    logic [AXI_LITE_DWIDTH-1:0] cfg_pclk_ctrl        = '0;   // occupied：EN/SINGLE_SHOT/AUTO_RESTART 采集控制
+    logic [AXI_LITE_DWIDTH-1:0] cfg_pclk_dvp_ctrl    = '0;   // occupied：PIX_FMT/BYTE_SWAP/PHREF_POL
+    logic [AXI_LITE_DWIDTH-1:0] cfg_pclk_img_width   = '0;   // occupied：行像素比较
+    logic [AXI_LITE_DWIDTH-1:0] cfg_pclk_img_height  = '0;   // occupied：帧行数比较
+    logic [AXI_LITE_DWIDTH-1:0] cfg_pclk_line_total  = '0;   // occupied：行超时统计
+    logic [AXI_LITE_DWIDTH-1:0] cfg_pclk_frame_total = '0;   // occupied：帧完整性判断
+    logic [AXI_LITE_DWIDTH-1:0] cfg_pclk_fifo_thres  = '0;   // occupied：FIFO 反压水位
+
+    always_ff @(posedge pclk or negedge prst_n) begin
+        if (!prst_n) begin
+            cfg_pclk_ctrl        <= '0;
+            cfg_pclk_dvp_ctrl    <= '0;
+            cfg_pclk_img_width   <= '0;
+            cfg_pclk_img_height  <= '0;
+            cfg_pclk_line_total  <= '0;
+            cfg_pclk_frame_total <= '0;
+            cfg_pclk_fifo_thres  <= '0;
+        end else if (cfg_upd_pulse) begin
+            cfg_pclk_ctrl        <= cdc_frm_bin_pclk[CDC_FRM_CTRL];
+            cfg_pclk_dvp_ctrl    <= cdc_frm_bin_pclk[CDC_FRM_DVP_CTRL];
+            cfg_pclk_img_width   <= cdc_frm_bin_pclk[CDC_FRM_IMG_WIDTH];
+            cfg_pclk_img_height  <= cdc_frm_bin_pclk[CDC_FRM_IMG_HEIGHT];
+            cfg_pclk_line_total  <= cdc_frm_bin_pclk[CDC_FRM_LINE_TOTAL];
+            cfg_pclk_frame_total <= cdc_frm_bin_pclk[CDC_FRM_FRAME_TOTAL];
+            cfg_pclk_fifo_thres  <= cdc_frm_bin_pclk[CDC_FRM_FIFO_THRES];
+        end
+    end
+
+    // =====================================================================
+    // 8. 跨时钟域：状态与计数 pclk -> aclk（供软件读回）
+    //    机制同上：pclk 域编码寄存 -> aclk 域 2 级同步 -> aclk 域解码
+    // =====================================================================
+    localparam int CDC_RBK_PIX_CNT  = 0;
+    localparam int CDC_RBK_LINE_CNT = 1;
+    localparam int CDC_RBK_STATUS   = 2;
+    localparam int N_CDC_RBK        = 3;
+
+    // pclk 域状态字：位定义与 STATUS 一致（[15:8]=FSM_STATE [2]=LINE_VALID
+    //                                     [1]=FRAME_VALID [0]=BUSY）
+    wire [AXI_LITE_DWIDTH-1:0] pclk_status = {
+        16'h0,
+        pclk_fsm_state,
+        5'h0,                 // [7:3]：FIFO/AXIS 状态在 aclk 域，不经本通路
+        pclk_line_valid,
+        pclk_frame_valid,
+        pclk_busy
+    };
+
+    // pclk 域：格雷码编码寄存
+    logic [AXI_LITE_DWIDTH-1:0] cdc_rbk_gray_pclk [N_CDC_RBK] = '{default:'0};
+
+    always_ff @(posedge pclk or negedge prst_n) begin
+        if (!prst_n) begin
+            for (int i = 0; i < N_CDC_RBK; i++) cdc_rbk_gray_pclk[i] <= '0;
+        end else begin
+            cdc_rbk_gray_pclk[CDC_RBK_PIX_CNT]  <= bin2gray(pclk_pix_cnt);
+            cdc_rbk_gray_pclk[CDC_RBK_LINE_CNT] <= bin2gray(pclk_line_cnt);
+            cdc_rbk_gray_pclk[CDC_RBK_STATUS]   <= bin2gray(pclk_status);
+        end
+    end
+
+    // aclk 域：2 级同步 + 解码
+    logic [AXI_LITE_DWIDTH-1:0] cdc_rbk_gray_s1 [N_CDC_RBK];
+    logic [AXI_LITE_DWIDTH-1:0] cdc_rbk_gray_s2 [N_CDC_RBK];
+    wire  [AXI_LITE_DWIDTH-1:0] rbk_pix_cnt_aclk;
+    wire  [AXI_LITE_DWIDTH-1:0] rbk_line_cnt_aclk;
+    wire  [AXI_LITE_DWIDTH-1:0] rbk_status_aclk;
+
+    always_ff @(posedge aclk or negedge aresetn) begin
+        if (!aresetn) begin
+            for (int i = 0; i < N_CDC_RBK; i++) begin
+                cdc_rbk_gray_s1[i] <= '0;
+                cdc_rbk_gray_s2[i] <= '0;
+            end
+        end else begin
+            for (int i = 0; i < N_CDC_RBK; i++) begin
+                cdc_rbk_gray_s1[i] <= cdc_rbk_gray_pclk[i];
+                cdc_rbk_gray_s2[i] <= cdc_rbk_gray_s1[i];
+            end
+        end
+    end
+
+    assign rbk_pix_cnt_aclk  = gray2bin(cdc_rbk_gray_s2[CDC_RBK_PIX_CNT]);
+    assign rbk_line_cnt_aclk = gray2bin(cdc_rbk_gray_s2[CDC_RBK_LINE_CNT]);
+    assign rbk_status_aclk   = gray2bin(cdc_rbk_gray_s2[CDC_RBK_STATUS]);
+
+    // =====================================================================
+    // 9. 寄存器读回组合值与事件掩码
     // =====================================================================
     wire [AXI_LITE_DWIDTH-1:0] reg_status = {
         16'h0,
-        status_fsm_state,
+        rbk_status_aclk[15:8],        // [15:8] FSM_STATE（pclk 域跨域读回）
         2'b00,
-        status_axis_busy,
-        status_fifo_empty,
-        status_fifo_full,
-        status_line_valid,
-        status_frame_valid,
-        status_busy
+        status_axis_busy,             // [5] AXI-Stream 忙（aclk 域）
+        status_fifo_empty,            // [4] FIFO 空（aclk 域）
+        status_fifo_full,             // [3] FIFO 满（aclk 域）
+        rbk_status_aclk[2],           // [2] LINE_VALID（pclk 域跨域读回）
+        rbk_status_aclk[1],           // [1] FRAME_VALID（pclk 域跨域读回）
+        rbk_status_aclk[0]            // [0] BUSY（pclk 域跨域读回）
     };
 
     wire [AXI_LITE_DWIDTH-1:0] reg_fifo_status = {
@@ -225,9 +459,6 @@ module DVP2axis #(
                                               | one_hot_mask(frame_err_event,     INT_BIT_FRAME)
                                               | one_hot_mask(axis_err_event,      INT_BIT_AXIS);
 
-    // =====================================================================
-    // 7. CTRL 组合下一值与地址译码
-    // =====================================================================
     // CTRL 下一值：字节选通合并后清掉自清零位（仅在 wstrb[0] 有效时清除）
     wire [AXI_LITE_DWIDTH-1:0] ctrl_selfclear_mask = slv_axil.wstrb[0]
         ? one_hot_mask(1'b1, CTRL_BIT_SOFT_RST)
@@ -237,16 +468,8 @@ module DVP2axis #(
     wire [AXI_LITE_DWIDTH-1:0] ctrl_next_w =
         apply_wstrb(reg_ctrl, slv_axil.wdata, slv_axil.wstrb) & ~ctrl_selfclear_mask;
 
-    // 地址译码：仅译低位偏移，高位非 0 视为未映射地址，不别名到寄存器区
-    wire [AXI_LITE_AWIDTH-1:0] wr_offset = slv_axil.awaddr - AXI_LITE_BASE_ADDR_OFFSET;
-    wire [AXI_LITE_AWIDTH-1:0] rd_offset = slv_axil.araddr - AXI_LITE_BASE_ADDR_OFFSET;
-    wire [7:0] wr_addr = wr_offset[7:0];
-    wire [7:0] rd_addr = rd_offset[7:0];
-    wire wr_hit = (wr_offset[AXI_LITE_AWIDTH-1:8] == '0);
-    wire rd_hit = (rd_offset[AXI_LITE_AWIDTH-1:8] == '0);
-
     // =====================================================================
-    // 8. AXI4-Lite 通道握手（从机侧）
+    // 10. AXI4-Lite 通道握手（从机侧）与读数据选择
     //     写：AW 与 W 同时握手后接受地址+数据，再由 B 通道回响应
     //     读：AR 握手后捕获读数据，再由 R 通道返回
     // =====================================================================
@@ -306,9 +529,7 @@ module DVP2axis #(
     always_comb begin
         rdata_mux = '0;
         if (rd_hit) begin
-            for (int i = 0; i < N_CFG; i++) begin
-                if (rd_addr == CFG_TAB[i].offset) rdata_mux = cfg_reg[i];
-            end
+            rdata_mux = cfg_val(rd_addr);           // 命中 CFG_TAB 的配置寄存器
             case (rd_addr)
                 ADDR_CTRL:         rdata_mux = reg_ctrl;
                 ADDR_STATUS:       rdata_mux = reg_status;
@@ -317,9 +538,9 @@ module DVP2axis #(
                 ADDR_INT_STATUS:   rdata_mux = reg_int_status;
                 ADDR_VERSION:      rdata_mux = IP_VERSION;
                 ADDR_FIFO_STATUS:  rdata_mux = reg_fifo_status;
-                ADDR_DBG_STATE:    rdata_mux = {{(AXI_LITE_DWIDTH-8){1'b0}}, status_fsm_state};
-                ADDR_DBG_PIX_CNT:  rdata_mux = reg_dbg_pix_cnt;
-                ADDR_DBG_LINE_CNT: rdata_mux = reg_dbg_line_cnt;
+                ADDR_DBG_STATE:    rdata_mux = {{(AXI_LITE_DWIDTH-8){1'b0}}, rbk_status_aclk[15:8]};
+                ADDR_DBG_PIX_CNT:  rdata_mux = rbk_pix_cnt_aclk;    // pclk 域计数跨域读回
+                ADDR_DBG_LINE_CNT: rdata_mux = rbk_line_cnt_aclk;   // pclk 域计数跨域读回
                 ADDR_DBG_BEAT_CNT: rdata_mux = reg_dbg_beat_cnt;
                 default:           ;
             endcase
@@ -327,8 +548,8 @@ module DVP2axis #(
     end
 
     // =====================================================================
-    // 9. 寄存器写通路
-    //    顺序即优先级：粘滞事件 -> W1C -> CTRL 写动作 -> 配置寄存器写入
+    // 11. 寄存器写通路
+    //     顺序即优先级：粘滞事件 -> W1C -> CTRL 写动作 -> 配置寄存器写入
     // =====================================================================
     always_ff @(posedge aclk or negedge aresetn) begin
         if (!aresetn) begin
@@ -336,17 +557,15 @@ module DVP2axis #(
             reg_frame_cnt    <= '0;
             reg_err_flag     <= '0;
             reg_int_status   <= '0;
-            reg_dbg_pix_cnt  <= '0;
-            reg_dbg_line_cnt <= '0;
             reg_dbg_beat_cnt <= '0;
             for (int i = 0; i < N_CFG; i++) cfg_reg[i] <= CFG_TAB[i].reset;
         end else begin
-            // ---- 9.1 硬件粘滞事件 ----
+            // ---- 11.1 硬件粘滞事件 ----
             reg_err_flag   <= reg_err_flag   | err_event_mask;
             reg_int_status <= reg_int_status | int_event_mask;
             if (frame_done_event) reg_frame_cnt <= reg_frame_cnt + 1'b1;
 
-            // ---- 9.2 W1C：写入位清除，同拍事件保留 ----
+            // ---- 11.2 W1C：写入位清除，同拍事件保留 ----
             if (wr_accept && wr_hit) begin
                 if (wr_addr == ADDR_ERR_FLAG) begin
                     reg_err_flag <= w1c_clear(reg_err_flag, slv_axil.wdata, slv_axil.wstrb)
@@ -358,27 +577,27 @@ module DVP2axis #(
                 end
             end
 
-            // ---- 9.3 CTRL 写动作（自清零位随 9.4 一并生效）----
+            // ---- 11.3 CTRL 写动作（自清零位随 11.4 一并生效）----
+            // DBG_PIX_CNT / DBG_LINE_CNT 位于 pclk 域，其清除需要跨域脉冲（握手）通路
+            // occupied
             if (wr_accept && wr_hit && (wr_addr == ADDR_CTRL)) begin
                 if (slv_axil.wdata[CTRL_BIT_SOFT_RST] && slv_axil.wstrb[0]) begin  // SOFT_RST
                     reg_frame_cnt    <= '0;
                     reg_err_flag     <= err_event_mask;   // 清空但保留同拍事件
                     reg_int_status   <= int_event_mask;
-                    reg_dbg_pix_cnt  <= '0;
-                    reg_dbg_line_cnt <= '0;
                     reg_dbg_beat_cnt <= '0;
                 end
                 if (slv_axil.wdata[CTRL_BIT_CLR_CNT] && slv_axil.wstrb[0]) begin   // CLR_CNT
                     reg_frame_cnt    <= '0;
                     reg_err_flag     <= err_event_mask;   // 清空但保留同拍事件
-                    reg_dbg_pix_cnt  <= '0;
-                    reg_dbg_line_cnt <= '0;
                     reg_dbg_beat_cnt <= '0;
                 end
-                // CLR_FIFO：FIFO 尚未实现，暂无动作
+                // CLR_FIFO：FIFO 尚未实现，暂无动作  // occupied
             end
 
-            // ---- 9.4 寄存器写入：CTRL 单独处理，其余配置寄存器按表遍历 ----
+            // ---- 11.4 寄存器写入：CTRL 单独处理，其余配置寄存器按表遍历 ----
+            // 自清零位只在 wstrb[0] 有效时清除（见 ctrl_selfclear_mask），
+            // 因此 reg_ctrl[1]/[4]/[5] 在任意时刻恒为 0，可直接作为跨域源
             if (wr_accept && wr_hit) begin
                 if (wr_addr == ADDR_CTRL) reg_ctrl <= ctrl_next_w;
                 for (int i = 0; i < N_CFG; i++) begin
@@ -391,9 +610,11 @@ module DVP2axis #(
     end
 
     // =====================================================================
-    // 10. DVP 采集与 AXI-Stream 输出（占位）
+    // 12. DVP 采集与 AXI-Stream 输出（占位）
     //     TODO: 实现 DVP 采集/打包与 AXI-Stream 主机逻辑，
-    //           由数据通路产生 tvalid/tdata/tlast 并按 axis_m.tready 反压
+    //           由数据通路产生 tvalid/tdata/tlast 并按 axis_m.tready 反压；
+    //           配置取值用本域的 cfg_pclk_* 影子寄存器，状态/计数接回 4.2 的 pclk 源
+    //     // occupied
     // =====================================================================
     assign axis_m.tvalid = 1'b0;
     assign axis_m.tdata  = '0;
