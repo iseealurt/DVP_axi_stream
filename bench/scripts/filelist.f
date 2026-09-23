@@ -8,13 +8,18 @@
 # ------------------------------ RTL ------------------------------
 RTL/IF/if_axil.sv
 RTL/IF/if_axis.sv
+RTL/FIFO/axis_async_fifo.sv
 RTL/DVP2axis.sv
 
 # ------------------------------ 库：接口层 ------------------------------
 bench/lib/IF/vrf_axil_if.sv
+bench/lib/IF/vrf_dvp_if.sv
 
 # ------------------------------ 库：包与组件 ------------------------------
 bench/lib/Pkg/vrf_axil_pkg.sv
+
+# ------------------------------ 库：DVP 数据通路组件（按需 import） ------------------------------
+bench/lib/Dvp/vrf_dvp_pkg.sv
 
 # ------------------------------ 库：从机参考模型 ------------------------------
 bench/lib/Slv/vrf_axil_slave.sv

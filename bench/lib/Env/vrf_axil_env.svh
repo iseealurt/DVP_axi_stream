@@ -45,6 +45,11 @@ class vrf_axil_env #(
   string  bringup_hdr    = "";
   int     n_rand_submit  = 0;
 
+  // 外部检查项计数：供用例把「AXI4-Lite 总线之外」的检查（如数据通路帧级比对）
+  // 汇入统一报告与结论口径；不改变既有用例的统计（默认 0）
+  int     ext_check_num  = 0;
+  int     ext_fail_num   = 0;
+
   process p_drv, p_mon, p_seqr, p_sb;
 
   function new(vrf_axil_cfg cfg);
@@ -225,9 +230,9 @@ class vrf_axil_env #(
     $fdisplay(fd, "================= 事务比对统计 =================");
     $fdisplay(fd, "发起事务数   : %0d", sb.n_issued);
     $fdisplay(fd, "监视观测数   : %0d", mon.n_observed);
-    $fdisplay(fd, "参与比对检查 : %0d", sb.n_checked);
+    $fdisplay(fd, "参与比对检查 : %0d", sb.n_checked + ext_check_num);
     $fdisplay(fd, "通过         : %0d", sb.n_pass);
-    $fdisplay(fd, "失败         : %0d", sb.n_fail);
+    $fdisplay(fd, "失败         : %0d", sb.n_fail + ext_fail_num);
     $fdisplay(fd, "跳过         : %0d", sb.n_skip);
     $fdisplay(fd, "复现重注     : %0d", sb.n_repro);
     $fdisplay(fd, "断言检查次数 : %0d", vrf_axil_ctrl::assert_chk_cnt);
@@ -246,11 +251,13 @@ class vrf_axil_env #(
       $fdisplay(fd, "");
     end
 
-    line = (sb.n_fail == 0 && vrf_axil_ctrl::assert_fail_cnt == 0 && bringup_ok)
+    line = (sb.n_fail == 0 && vrf_axil_ctrl::assert_fail_cnt == 0 && bringup_ok
+            && ext_fail_num == 0)
            ? "SIMULATION PASSED" : "SIMULATION FAILED";
     $fdisplay(fd, "================= 结论 =================");
     $fdisplay(fd, "%s: 检查 %0d 项, 失败 %0d 项, 断言失败 %0d 项",
-              line, sb.n_checked, sb.n_fail, vrf_axil_ctrl::assert_fail_cnt);
+              line, sb.n_checked + ext_check_num, sb.n_fail + ext_fail_num,
+              vrf_axil_ctrl::assert_fail_cnt);
     if (fd != 1) $fclose(fd);
 
     $display("");
@@ -259,22 +266,24 @@ class vrf_axil_env #(
     $display("随机种子     : %0d", cfg.seed);
     $display("发起事务数   : %0d", sb.n_issued);
     $display("参与比对检查 : %0d    通过: %0d    失败: %0d    跳过: %0d",
-             sb.n_checked, sb.n_pass, sb.n_fail, sb.n_skip);
+             sb.n_checked + ext_check_num, sb.n_pass, sb.n_fail + ext_fail_num, sb.n_skip);
     $display("断言检查次数 : %0d    失败: %0d",
              vrf_axil_ctrl::assert_chk_cnt, vrf_axil_ctrl::assert_fail_cnt);
     $display("%s", cov.report_string());
     $display("整体覆盖率   : %0.2f%%", $get_coverage());
     $display("%s: 检查 %0d 项, 失败 %0d 项, 断言失败 %0d 项",
-             line, sb.n_checked, sb.n_fail, vrf_axil_ctrl::assert_fail_cnt);
+             line, sb.n_checked + ext_check_num, sb.n_fail + ext_fail_num,
+             vrf_axil_ctrl::assert_fail_cnt);
     $display("====================================================");
   endtask
 
   function bit is_pass();
-    return (sb.n_fail == 0) && (vrf_axil_ctrl::assert_fail_cnt == 0) && bringup_ok;
+    return (sb.n_fail == 0) && (vrf_axil_ctrl::assert_fail_cnt == 0) && bringup_ok
+           && (ext_fail_num == 0);
   endfunction
 
   function int total_checks();
-    return sb.n_checked + vrf_axil_ctrl::assert_chk_cnt + bringup.n_checked;
+    return sb.n_checked + vrf_axil_ctrl::assert_chk_cnt + bringup.n_checked + ext_check_num;
   endfunction
 endclass
 

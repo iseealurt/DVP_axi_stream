@@ -32,4 +32,7 @@ package vrf_axil_pkg;
   `include "../Chk/vrf_axil_bringup.svh"
   `include "../Drv/vrf_axil_driver.svh"
   `include "../Env/vrf_axil_env.svh"
+
+  // 说明：DVP 数据通路组件（激励/帧级参考模型/覆盖率）位于独立 package
+  //       vrf_dvp_pkg（见 bench/lib/Dvp/vrf_dvp_pkg.sv），由需要的用例按需 import。
 endpackage

@@ -47,10 +47,11 @@
 | 项 | 结果 |
 |---|---|
 | 库自测用例 `tb_vrf_axil_demo` | **PASSED**：事务比对 285 项，失败 0；协议断言 5238 次，失败 0 |
-| 接入示例 `tb_dvp2ax_stream` | **PASSED**：事务比对 539 项（跳过 1），失败 0；协议断言 7214 次，失败 0 |
+| 接入示例 `tb_dvp2ax_stream`（寄存器 + 数据通路） | **PASSED**：参与比对 1155 项（总线 969 + 数据通路帧级 186），失败 0；协议断言 55454 次，失败 0 |
+| 数据通路帧级比对 | 28 个 DVP 用例（正常帧 ×6 / 边界 ×10 / 中断 ×2 / 参数生效 ×2 / FIFO 溢出 ×1 / 补齐项定向 ×7），183 拍逐字节比对，失败 0 |
 | 复位窗口定向用例 `tb_vrf_axil_rst_window` | **PASSED**：12 项检查，失败 0（修复前可稳定复现 AW/W 窗口期复位的地址错配） |
 | 上电连通性自检 | 三个用例均 21 个总线信号全部通过（0 连接错误、0 X/Z） |
-| 功能覆盖率 | **100.00%**（可达 bin 37/37） |
+| 功能覆盖率 | **100.00%**：`vrf_axil_cg` 37/37、`vrf_dvp_cg` 33/33（边界 × TLAST_MODE 交叉全覆盖） |
 | 批量回归 | 三个用例各 5 个随机种子全部 PASSED |
 | 编译与仿真告警 | **0 错误、0 告警** |
 | 失败复现链路 | 已通过故障注入自测（失败检测 → 回注复现 → 宽监视 → 错误报告 → 种子落盘） |
@@ -60,11 +61,11 @@
 ```
 # 测试用例 : tb_dvp2ax_stream      # 回归轮次 : 5 / 5
 Seed     Exit   Checks     Failures   AssertErr   Verdict
-1        0      539        0          0           PASSED
-2        0      539        0          0           PASSED
-3        0      539        0          0           PASSED
-4        0      539        0          0           PASSED
-5        0      539        0          0           PASSED
+1        0      1155       0          0           PASSED
+2        0      1155       0          0           PASSED
+3        0      1155       0          0           PASSED
+4        0      1155       0          0           PASSED
+5        0      1155       0          0           PASSED
 # 结论 : REGRESSION PASSED
 ```
 
@@ -75,15 +76,19 @@ Seed     Exit   Checks     Failures   AssertErr   Verdict
 ```
 .
 ├── RTL/
-│   └── DVP2axi_stream.v          # DVP → AXI-Stream IP（本轮验证其 AXI4-Lite 寄存器块）
+│   ├── DVP2axis.sv               # DVP → AXI-Stream IP（寄存器块 + 采集/合并/打包/异步 FIFO 输出）
+│   ├── IF/ if_axil.sv if_axis.sv # AXI4-Lite / AXI-Stream 接口
+│   ├── FIFO/axis_async_fifo.sv   # 参数化行为级异步 FIFO（格雷码指针 CDC，FWFT 读）
+│   └── Ref/DVP_AXI_v_2_0.v       # 参考模块（私有 AXI4 写内存版，仅供结构参考）
 ├── bench/
-│   ├── lib/                      # VRF_AXI4L 库本体（与具体 DUT 解耦）
+│   ├── lib/                      # VRF_AXI4L 库本体
 │   │   ├── IF/   vrf_axil_if.sv          # mst/slv/mnt 三视角接口 + 挂钩宏
+│   │   │         vrf_dvp_if.sv           # DVP 输入接口（pdin/pvref/phref）
 │   │   ├── Pkg/  vrf_axil_pkg.sv         # 顶层 package
 │   │   │         vrf_axil_types.svh      # 类型枚举 / 接口句柄表 / 全局控制类
 │   │   │         vrf_axil_txn.svh        # 事务类与约束
 │   │   │         vrf_axil_cfg.svh        # 配置类
-│   │   ├── Reg/  vrf_axil_regmodel.svh   # 轻量寄存器模型（RAL-like）
+│   │   ├── Reg/  vrf_axil_regmodel.svh   # 轻量寄存器模型（RAL-like，含读预测回调）
 │   │   ├── Seq/  vrf_axil_direct_lib.svh # 定向用例库
 │   │   │         vrf_axil_sequence.svh   # sequence（generator）
 │   │   │         vrf_axil_sequencer.svh  # sequencer（仲裁 + 失败重注）
@@ -94,10 +99,13 @@ Seed     Exit   Checks     Failures   AssertErr   Verdict
 │   │   ├── Env/  vrf_axil_env.svh        # 环境类（一键启用 / 细粒度控制）
 │   │   │         vrf_axil_scoreboard.svh # 计分板
 │   │   ├── Chk/  vrf_axil_bringup.svh    # 上电连通性自检
-│   │   │         vrf_axil_chk.sv         # 协议检查器（bind 语句由用例给出，库本体不含 DUT 名）
+│   │   │         vrf_axil_chk.sv         # 协议检查器（bind 语句由用例给出）
+│   │   └── Dvp/  vrf_dvp_driver.svh      # DVP 激励发生器（帧/边界注入）
+│   │             vrf_axis_frame_chk.svh  # AXIS 帧级参考模型与逐拍比对
+│   │             vrf_dvp_cov.svh         # 数据通路覆盖率（边界 × TLAST_MODE × PIX_FMT）
 │   ├── tb/
 │   │   ├── tb_vrf_axil_demo.sv   # 库自测用例（对端：从机参考模型，不依赖 RTL）
-│   │   ├── tb_dvp2ax_stream.sv   # 接入示例（对端：DVP2axi_stream）
+│   │   ├── tb_dvp2ax_stream.sv   # 接入示例（寄存器 + DVP 数据通路/边界/中断用例）
 │   │   └── tb_vrf_axil_rst_window.sv  # 复位窗口定向用例（直接驱动监视视角接口）
 │   ├── scripts/
 │   │   ├── filelist.f            # 编译文件列表（顺序固定，须配合 -mfcu）
@@ -112,7 +120,9 @@ Seed     Exit   Checks     Failures   AssertErr   Verdict
 │   ├── Dev_report_0916.md        # 开发报告（含四轮评审修正记录）
 │   ├── Dev_plan_0917.md          # 开发计划（缺陷修复 / 验证深度 / 工程化 / 范围扩展）
 │   ├── Dev_report_0917.md        # 开发报告（阶段一：缺陷修复与库通用性收尾）
-│   ├── Reg_v_0_0.md              # DVP2AXI_Stream 寄存器设计说明
+│   ├── Dev_plan_0923.md          # 开发计划（数据通路 + 边界处理 + 验证工程化）
+│   ├── Dev_report_0923.md        # 开发报告（数据通路/边界/中断与帧级验证）
+│   ├── Reg_v_0_0.md              # DVP2AXI_Stream 寄存器设计说明（含数据通路实现口径）
 │   └── AXI4_Lite_Sim_Report.md   # 历史基线仿真报告
 ├── Makefile                      # 统一入口（内部调用上述 PowerShell 脚本）
 └── .gitignore                    # 排除仿真生成物、工作库、日志与报告
@@ -294,7 +304,28 @@ env.report();
 | 0x70 ~ 0x7C | DBG_STATE / PIX_CNT / LINE_CNT / BEAT_CNT | RO | 调试寄存器 |
 | 0x80 | SCRATCH | R/W | 软件自检寄存器 |
 
-> 当前 RTL 的数据通路仍为 tie-off，本轮仅验证 AXI4-Lite 寄存器块。
+> 数据通路（v1.0 已实现）：`pdin/pvref/phref`（4 级同步）→ 像素合并（按 `PIX_FMT` 决定每像素字节数）
+> → beat 打包（`PACK_EN/PACK_MODE/BYTE_SWAP/TLAST_MODE`）→ 异步 FIFO（1024 beat）→ AXI-Stream 输出；
+> 行长/帧长恒等于 `IMG_WIDTH/IMG_HEIGHT`（输入更短则提前结束、更长则丢弃多余部分）；
+> 详细口径见 [Doc/Reg_v_0_0.md](Doc/Reg_v_0_0.md) §6（含配置生效时机与实现状态）。
+> `FIFO_THRESHOLD` 驱动 `FIFO_STATUS.ALMOST_FULL`（高水位指示）；`STATUS[6] CFG_PENDING` 可轮询配置是否已在帧边界提交。
+
+### 数据通路帧级验证
+
+`tb_dvp2ax_stream.sv` 在寄存器用例之后追加数据通路用例（阶段三），可复用的库组件：
+
+| 组件 | 作用 |
+|---|---|
+| `vrf_dvp_driver` | pclk 域 DVP 激励：按 `PIX_FMT` 字节串行发送像素，支持每行像素数/每帧行数注入（行短/行长/帧短/帧长）、确定性伪随机像素 |
+| `vrf_axis_frame_chk` | 依据驱动计划 + 打包配置重建期望 beat 序列（有效字节数/tstrb/tlast/填充/字节序），与 AXIS 每拍观测逐字节比对 |
+| `vrf_dvp_cov` | 覆盖率：边界类型 × TLAST_MODE 交叉 + PIX_FMT/PACK_MODE/BYTE_SWAP/TSTRB_EN 取值 |
+
+用例矩阵：正常帧 ×6（YUV422/RGB565/RAW8/RAW10/RGB888，自动与手动打包、大小端、TSTRB 开关）、
+边界 ×10（LINE_SHORT/LINE_LONG/FRAME_SHORT/FRAME_LONG 各 2 种 TLAST_MODE + 行短且帧短组合）、
+中断 ×2（门控关/开 + W1C 清除）、参数生效 ×2（帧边界生效 + `PCLK_INV` 下降沿采样）、FIFO 溢出 ×1、
+补齐项定向 ×7（`CFG_PENDING` / `CFG_ERR` / `ALMOST_FULL` / `AXIS_ERR` 超时 / `CLR_CNT` / `CLR_FIFO` / `SOFT_RST`）。
+
+> 数据通路用例通过 `env.ext_check_num/ext_fail_num`（库新增的外部检查项计数）汇入统一报告与结论口径。
 
 ---
 
@@ -354,15 +385,29 @@ SystemVerilog 的 `bind` **只能观测**目标模块内部信号，**无法驱�
 
 ## 已知限制
 
-1. **验证范围**：仅覆盖 AXI4-Lite 寄存器接口；DVP 输入与 AXI-Stream 输出不纳入验证，也未做 tie-off，连通性自检报告头会明确标注为「本轮不纳入验证」。
-2. **数据通路**：RTL 中 `pdin` / `pvref` / `phref` / `axis_tready` 为未使用输入，`axis_tvalid` / `tdata` / `tlast` 恒为 0，数据通路尚未实现。
-3. **形式化**：断言已按 formal-friendly 方式编写（属性独立、含 `disable iff` 门控、无时序依赖的过程语句），但未搭建形式化工具环境，未做有界证明。
-4. **代码覆盖率**：`-Cover` 会同时开启代码覆盖率，但当前只统计功能覆盖率，代码覆盖率未纳入验收。
-5. **非标准端口**：`awport` / `arport` 为非标准端口，仅做连通性与 X/Z 检查，不纳入标准协议检查。
-6. **Makefile**：本机未安装 `make`，未做实机验证；内部调用的 PowerShell 脚本均已验证。
-7. **并发运行**：工作库名固定（`work_demo` / `work_dvp2axi` / `work_rstw`），不支持同一用例的真正并发运行。`run.ps1` 会在工程根目录写占用标记（原子创建、记录 PID），被存活进程占用时以退出码 3 拒绝，陈旧标记会被接管。
-8. **覆盖率能力开关**：异常响应与非 0 ID 的 bin 由**编译期**开关决定（ModelSim 2020.4 不支持 covergroup 参数端口，运行期 `iff` 亦在 elaboration 期固化），须与 `cfg` 声明一致，否则构造覆盖率收集器即 `$fatal`。
-9. **复位窗口用例为白盒**：`tb_vrf_axil_rst_window` 直接驱动监视视角接口——因为现有两台对端（`DVP2axi_stream` 与 `vrf_axil_slv_ref`）都只在 `awvalid & wvalid` 同时有效时拉高 `awready/wready`，「AW 已握手、W 未握手」这一协议合法窗口在全系统激励下不可达。
+1. **DVP 数据通路未实现项已全部补齐**（原 §6.4 登记项）：
+   `ERR_FLAG.AXIS_ERR`（tready 超时检测，门限 8192 aclk）、`DVP_CTRL.PCLK_INV`（下降沿采样，写入后立即生效）、
+   `CTRL.SOFT_RST/CLR_CNT/CLR_FIFO` 的跨域清除（pclk 域计数/打包/状态机与 `FIFO_STATUS` 粘滞位一并复位；
+   `CLR_CNT` 只清计数、不动 FIFO）、`FIFO_THRESHOLD`（驱动 `FIFO_STATUS.ALMOST_FULL`）、
+   配置握手在途状态（引出为 `STATUS.CFG_PENDING`）。详见 [Doc/Reg_v_0_0.md](Doc/Reg_v_0_0.md) §6.4。
+   仍存限制：清除类动作有数个时钟周期的跨域传播延迟，写后应立即回读计数寄存器时需先等待/轮询 `CFG_PENDING`。
+2. **DVP 输入位宽**：仅支持 `DVP_DWIDTH=8` 字节串行输入（其他取值 elaboration 期报错）；
+   多字节每拍输入需扩展合并逻辑。
+3. **配置生效时机**：pclk 域参数（含 `CTRL.EN`）在 `pvref` 帧边界整组提交，且每个帧边沿只推进一次请求，
+   多笔配置需若干帧才能全部生效；写入与帧边界竞态按「本帧用旧值」处理（见 §6.3）。
+4. **FIFO 原语**：`axis_async_fifo` 为行为级实现（仿真用），综合阶段需按接口替换为厂商异步 FIFO 原语。
+5. **形式化**：断言已按 formal-friendly 方式编写，但未搭建形式化工具环境，未做有界证明。
+6. **代码覆盖率**：`-Cover` 会同时开启代码覆盖率，但当前只统计功能覆盖率，代码覆盖率未纳入验收。
+7. **非标准端口**：`awport` / `arport` 为非标准端口，仅做连通性与 X/Z 检查，不纳入标准协议检查。
+8. **Makefile**：本机未安装 `make`，未做实机验证；内部调用的 PowerShell 脚本均已验证。
+9. **并发运行**：工作库名固定（`work_demo` / `work_dvp2axi` / `work_rstw`），不支持同一用例的真正并发运行。
+10. **覆盖率能力开关**：异常响应与非 0 ID 的 bin 由**编译期**开关决定（ModelSim 2020.4 不支持 covergroup 参数端口）。
+11. **复位窗口用例为白盒**：`tb_vrf_axil_rst_window` 直接驱动监视视角接口（该协议合法窗口在全系统激励下不可达）。
+12. **数据通路阶段的诊断开关**：数据通路用例期间关闭「失败回注 + 宽监视」（`cfg.enable_repro=0`），
+    避免长帧下逐拍宽监视使日志爆炸；帧级失败由 `vrf_axis_frame_chk` 给出逐拍明细，寄存器阶段仍保持开启。
+13. **异步 FIFO 两侧复位必须成对**：RTL 侧只对 `SOFT_RST/CLR_FIFO` 这类冲刷动作成对复位写侧/读侧指针
+    （`CLR_CNT` 只清计数、不动 FIFO）；用例在拉 `aresetn` 时同时脉冲 `prst_n`。任一侧单独复位会造成
+    格雷码指针失配并持续送出幻影 beat。
 
 ---
 
