@@ -14,7 +14,8 @@
 //     aclk 域 —— AXI4-Lite 寄存器块、AXI-Stream 输出
 //     pclk 域 —— DVP 采集与像素/行计数
 //     跨域     —— 见第 7、8 节：配置参数 aclk->pclk、状态计数 pclk->aclk，
-//                 均采用「格雷码编码 -> 2 级同步 -> 格雷码解码」机制
+//                 均采用「格雷码编码 -> 2 级同步 -> 格雷码解码」机制；
+//                 配置方向另有整组 4 相握手（req/ack 翻转式）确认「已在帧边界生效」
 //
 //   寄存器行为继承 RTL/DVP2axi_stream.v（映射见 Doc/Reg_v_0_0.md）：
 //     复位默认值 / wstrb 字节选通 / W1C / CTRL 自清零 / 粘滞事件 / ID 恒 0 / resp 恒 OKAY
@@ -233,8 +234,10 @@ module DVP2axis #(
     endfunction
 
     // =====================================================================
-    // 6. 地址译码
+    // 6. 地址译码与事务接受条件
     //    仅译低位偏移；高位非 0 视为未映射地址，不别名到寄存器区
+    //    接受条件放在此处（而非第 10 节），是因为第 7 节的跨域请求发生器要引用
+    //    wr_accept —— SystemVerilog 要求先声明后使用
     // =====================================================================
     wire [AXI_LITE_AWIDTH-1:0] wr_offset = slv_axil.awaddr - AXI_LITE_BASE_ADDR_OFFSET;
     wire [AXI_LITE_AWIDTH-1:0] rd_offset = slv_axil.araddr - AXI_LITE_BASE_ADDR_OFFSET;
@@ -243,17 +246,31 @@ module DVP2axis #(
     wire wr_hit = (wr_offset[AXI_LITE_AWIDTH-1:8] == '0);
     wire rd_hit = (rd_offset[AXI_LITE_AWIDTH-1:8] == '0);
 
+    // 写通道：AW 与 W 同时握手且处于空闲态；读通道：AR 握手且处于空闲态
+    typedef enum logic [1:0] {WR_IDLE, WR_RESP} wr_state_e;
+    typedef enum logic [1:0] {RD_IDLE, RD_DATA} rd_state_e;
+
+    wr_state_e wr_state;
+    rd_state_e rd_state;
+
+    wire wr_accept = aresetn && (wr_state == WR_IDLE) && slv_axil.awvalid && slv_axil.wvalid;
+    wire rd_accept = aresetn && (rd_state == RD_IDLE) && slv_axil.arvalid;
+
     // =====================================================================
     // 7. 跨时钟域：配置参数 aclk -> pclk
-    //    机制：aclk 域编码为格雷码并寄存 -> pclk 域 2 级同步 -> pclk 域解码
+    //    数据通路：aclk 域编码为格雷码并冻结寄存 -> pclk 域 2 级同步 -> 解码
+    //    握手确认（整组 4 相，覆盖 7.3 的更新组）：
+    //      aclk 侧写命中组内偏移 -> 置 dirty；无在途事务时发起：
+    //        冻结本次数据 + 翻转 cfg_req_tgl
+    //      pclk 侧 2 级同步请求 -> 在 pvref 有效边沿（帧边界）提交影子寄存器，
+    //        并翻转 cfg_ack_tgl 回 aclk，表示「本组配置已在该帧边界生效」
+    //      aclk 侧 2 级同步 ack -> 清除在途标志；若等待超时则置 cfg_ack_timeout
     //    更新策略：
     //      - DVP_CTRL.PVREF_POL 配置后立即生效（极性本身必须先可用，
-    //        否则无法判断 pvref 何时有效）
-    //      - 其余作用于 pclk 域的配置参数只在 pvref 有效边沿（帧边界）
-    //        由同一个更新脉冲统一加载，保证一帧内参数一致
-    //    说明：格雷码只保证相邻计数值单比特翻转；配置字为任意值时可能多比特
-    //          同时变化，这里依靠「帧边界更新 + 2 级同步」降低采到中间态的概率；
-    //          若后续需要严格保证，需改为握手/双缓冲确认机制
+    //        否则无法判断 pvref 何时有效），不参与握手
+    //      - 其余作用于 pclk 域的配置参数只在 pvref 有效边沿统一加载
+    //    说明：源端在请求发出后冻结到 ack 返回，因此数据在途期间稳定；
+    //          格雷码在此之上作为冗余保护保留（应对单字变化与计数器类通路）
     // =====================================================================
     // ---- 7.1 PVREF_POL：立即生效（1 bit 的格雷码即其自身，仍走 2 级同步）----
     wire pvref_pol_aclk = cfg_val(ADDR_DVP_CTRL)[DVP_BIT_PVREF_POL];
@@ -281,7 +298,7 @@ module DVP2axis #(
         end
     end
 
-    // ---- 7.3 帧边界更新组：作用于 pclk 域的配置字 ----
+    // ---- 7.3 帧边界更新组：组内偏移表（唯一来源），下标即 CDC_FRM_* 常量 ----
     localparam int CDC_FRM_CTRL        = 0;
     localparam int CDC_FRM_DVP_CTRL    = 1;
     localparam int CDC_FRM_IMG_WIDTH   = 2;
@@ -291,27 +308,92 @@ module DVP2axis #(
     localparam int CDC_FRM_FIFO_THRES  = 6;
     localparam int N_CDC_FRM           = 7;
 
-    // aclk 域源值（AXIS_* / INT_EN / SCRATCH 只在 aclk 域使用，不参与跨域）
-    wire [AXI_LITE_DWIDTH-1:0] cdc_frm_src [N_CDC_FRM];
-    assign cdc_frm_src[CDC_FRM_CTRL]        = reg_ctrl;   // 自清零位恒 0，见写通路 9.4
-    assign cdc_frm_src[CDC_FRM_DVP_CTRL]    = cfg_val(ADDR_DVP_CTRL);
-    assign cdc_frm_src[CDC_FRM_IMG_WIDTH]   = cfg_val(ADDR_IMG_WIDTH);
-    assign cdc_frm_src[CDC_FRM_IMG_HEIGHT]  = cfg_val(ADDR_IMG_HEIGHT);
-    assign cdc_frm_src[CDC_FRM_LINE_TOTAL]  = cfg_val(ADDR_LINE_TOTAL);
-    assign cdc_frm_src[CDC_FRM_FRAME_TOTAL] = cfg_val(ADDR_FRAME_TOTAL);
-    assign cdc_frm_src[CDC_FRM_FIFO_THRES]  = cfg_val(ADDR_FIFO_THRESHOLD);
+    // AXIS_CTRL / AXIS_* / INT_EN / SCRATCH 只在 aclk 域使用，不在本组内
+    localparam logic [7:0] CDC_FRM_ADDR [N_CDC_FRM] = '{
+        ADDR_CTRL        ,   // CDC_FRM_CTRL
+        ADDR_DVP_CTRL    ,   // CDC_FRM_DVP_CTRL
+        ADDR_IMG_WIDTH   ,   // CDC_FRM_IMG_WIDTH
+        ADDR_IMG_HEIGHT  ,   // CDC_FRM_IMG_HEIGHT
+        ADDR_LINE_TOTAL  ,   // CDC_FRM_LINE_TOTAL
+        ADDR_FRAME_TOTAL ,   // CDC_FRM_FRAME_TOTAL
+        ADDR_FIFO_THRESHOLD  // CDC_FRM_FIFO_THRES
+    };
 
-    // aclk 域：格雷码编码寄存
-    logic [AXI_LITE_DWIDTH-1:0] cdc_frm_gray_aclk [N_CDC_FRM];
+    logic [N_CDC_FRM-1:0] cdc_frm_wr_hit;              // 本次写命中的组内字
+    wire  [AXI_LITE_DWIDTH-1:0] cdc_frm_src [N_CDC_FRM];   // aclk 域源值
+
+    for (genvar i = 0; i < N_CDC_FRM; i++) begin : g_frm_src
+        assign cdc_frm_wr_hit[i] = (wr_addr == CDC_FRM_ADDR[i]);
+        // CTRL 的自清零位在写通路已清掉（恒 0，见 11.4），可直接作为跨域源
+        assign cdc_frm_src[i]    = (CDC_FRM_ADDR[i] == ADDR_CTRL) ? reg_ctrl
+                                                                  : cfg_val(CDC_FRM_ADDR[i]);
+    end
+
+    wire cfg_frm_wr = wr_accept && wr_hit && (cdc_frm_wr_hit != '0);
+
+    // ---- 7.4 握手：请求侧（aclk 域）----
+    // 单次在途 + dirty 重发：在途期间到达的写入靠 cfg_dirty 在 ack 后重新发起，
+    // 保证任何一次配置写入都不会丢失
+    logic cfg_dirty;              // aclk 域：有写入尚未随请求发出
+    logic cfg_req_tgl;            // aclk 域：请求电平（翻转式）
+    logic cfg_req_s1;             // pclk 域：请求同步 1 级
+    logic cfg_req_s2;             // pclk 域：请求同步 2 级
+    logic cfg_ack_tgl;            // pclk 域：确认电平（翻转式）
+    logic cfg_ack_s1;             // aclk 域：确认同步 1 级
+    logic cfg_ack_s2;             // aclk 域：确认同步 2 级
+    logic [AXI_LITE_DWIDTH-1:0] cdc_frm_gray_aclk [N_CDC_FRM];   // 冻结的格雷码数据
+
+    localparam int CFG_ACK_WAIT_BITS = 16;   // ack 等待超时门限位宽（约 2^16 个 aclk）
+
+    logic [CFG_ACK_WAIT_BITS-1:0] cfg_wait_cnt;
+    logic cfg_ack_timeout;        // occupied：请求超时标志，上报位置未定（STATUS/ERR 保留位）
+
+    wire cfg_busy      = (cfg_req_tgl != cfg_ack_s2);   // 1 = 有请求在途
+    wire cfg_issue     = cfg_dirty && !cfg_busy;        // 1 = 本拍发起请求
+    wire cfg_req_pend  = (cfg_req_s2 != cfg_ack_tgl);   // pclk 域：有待提交的请求
 
     always_ff @(posedge aclk or negedge aresetn) begin
         if (!aresetn) begin
+            cfg_dirty   <= 1'b0;
+            cfg_req_tgl <= 1'b0;
             for (int i = 0; i < N_CDC_FRM; i++) cdc_frm_gray_aclk[i] <= '0;
         end else begin
-            for (int i = 0; i < N_CDC_FRM; i++) cdc_frm_gray_aclk[i] <= bin2gray(cdc_frm_src[i]);
+            // dirty 先置位：与「发起」同拍的写入在下一轮（ack 之后）重新发起，
+            // 因为本拍的 cfg_reg 尚未更新，捕获到的仍是旧值
+            if (cfg_frm_wr)     cfg_dirty <= 1'b1;
+            else if (cfg_issue) cfg_dirty <= 1'b0;
+
+            if (cfg_issue) begin
+                cfg_req_tgl <= ~cfg_req_tgl;      // 翻转请求
+                for (int i = 0; i < N_CDC_FRM; i++) begin
+                    cdc_frm_gray_aclk[i] <= bin2gray(cdc_frm_src[i]);   // 冻结本次数据
+                end
+            end
         end
     end
 
+    // ack 同步回 aclk 域 + 等待超时计数（pclk 不翻转时给出可观测标志）
+    always_ff @(posedge aclk or negedge aresetn) begin
+        if (!aresetn) begin
+            cfg_ack_s1      <= 1'b0;
+            cfg_ack_s2      <= 1'b0;
+            cfg_wait_cnt    <= '0;
+            cfg_ack_timeout <= 1'b0;
+        end else begin
+            cfg_ack_s1 <= cfg_ack_tgl;
+            cfg_ack_s2 <= cfg_ack_s1;
+
+            if (!cfg_busy) begin
+                cfg_wait_cnt    <= '0;
+                cfg_ack_timeout <= 1'b0;
+            end else if (!cfg_ack_timeout) begin
+                cfg_wait_cnt <= cfg_wait_cnt + 1'b1;
+                if (cfg_wait_cnt == {CFG_ACK_WAIT_BITS{1'b1}}) cfg_ack_timeout <= 1'b1;
+            end
+        end
+    end
+
+    // ---- 7.5 握手：确认侧（pclk 域）----
     // pclk 域：2 级同步（声明即置 0：prst_n 未驱动时 pclk 域不向 AXIL 读回通路注入 X）
     logic [AXI_LITE_DWIDTH-1:0] cdc_frm_gray_s1 [N_CDC_FRM] = '{default:'0};
     logic [AXI_LITE_DWIDTH-1:0] cdc_frm_gray_s2 [N_CDC_FRM] = '{default:'0};
@@ -335,7 +417,20 @@ module DVP2axis #(
         assign cdc_frm_bin_pclk[i] = gray2bin(cdc_frm_gray_s2[i]);
     end
 
-    // pclk 域影子配置：仅在帧边界统一加载，供后续 DVP 采集/打包通路按域引用
+    // 请求 2 级同步进 pclk 域
+    always_ff @(posedge pclk or negedge prst_n) begin
+        if (!prst_n) begin
+            cfg_req_s1 <= 1'b0;
+            cfg_req_s2 <= 1'b0;
+        end else begin
+            cfg_req_s1 <= cfg_req_tgl;
+            cfg_req_s2 <= cfg_req_s1;
+        end
+    end
+
+    // pclk 域影子配置 + 提交确认：每次帧边界统一加载；
+    // 若本次加载对应一个未确认的请求（cfg_req_pend），翻转 ack 告知 aclk 侧
+    // 「本组配置已在该帧边界生效」
     logic [AXI_LITE_DWIDTH-1:0] cfg_pclk_ctrl        = '0;   // occupied：EN/SINGLE_SHOT/AUTO_RESTART 采集控制
     logic [AXI_LITE_DWIDTH-1:0] cfg_pclk_dvp_ctrl    = '0;   // occupied：PIX_FMT/BYTE_SWAP/PHREF_POL
     logic [AXI_LITE_DWIDTH-1:0] cfg_pclk_img_width   = '0;   // occupied：行像素比较
@@ -353,6 +448,7 @@ module DVP2axis #(
             cfg_pclk_line_total  <= '0;
             cfg_pclk_frame_total <= '0;
             cfg_pclk_fifo_thres  <= '0;
+            cfg_ack_tgl          <= 1'b0;
         end else if (cfg_upd_pulse) begin
             cfg_pclk_ctrl        <= cdc_frm_bin_pclk[CDC_FRM_CTRL];
             cfg_pclk_dvp_ctrl    <= cdc_frm_bin_pclk[CDC_FRM_DVP_CTRL];
@@ -361,6 +457,7 @@ module DVP2axis #(
             cfg_pclk_line_total  <= cdc_frm_bin_pclk[CDC_FRM_LINE_TOTAL];
             cfg_pclk_frame_total <= cdc_frm_bin_pclk[CDC_FRM_FRAME_TOTAL];
             cfg_pclk_fifo_thres  <= cdc_frm_bin_pclk[CDC_FRM_FIFO_THRES];
+            if (cfg_req_pend) cfg_ack_tgl <= ~cfg_ack_tgl;   // 回确认：已提交
         end
     end
 
@@ -473,16 +570,9 @@ module DVP2axis #(
     //     写：AW 与 W 同时握手后接受地址+数据，再由 B 通道回响应
     //     读：AR 握手后捕获读数据，再由 R 通道返回
     // =====================================================================
-    typedef enum logic [1:0] {WR_IDLE, WR_RESP} wr_state_e;
-    typedef enum logic [1:0] {RD_IDLE, RD_DATA} rd_state_e;
-
-    wr_state_e wr_state;
-    rd_state_e rd_state;
+    // 状态/接受条件与枚举声明见第 6 节（先声明后使用）
     logic [AXI_LITE_DWIDTH-1:0] rdata_reg;
     logic [AXI_LITE_DWIDTH-1:0] rdata_mux;   // 读数据组合选择结果（见下方 always_comb）
-
-    wire wr_accept = aresetn && (wr_state == WR_IDLE) && slv_axil.awvalid && slv_axil.wvalid;
-    wire rd_accept = aresetn && (rd_state == RD_IDLE) && slv_axil.arvalid;
 
     assign slv_axil.awready = wr_accept;
     assign slv_axil.wready  = wr_accept;
