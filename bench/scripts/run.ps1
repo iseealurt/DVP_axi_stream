@@ -6,6 +6,7 @@
     powershell -File bench/scripts/run.ps1 -Test tb_dvp2ax_stream -Seed 12345
     powershell -File bench/scripts/run.ps1 -Test tb_dvp2ax_stream -Cover
     powershell -File bench/scripts/run.ps1 -Test tb_dvp2ax_stream -Clean
+    powershell -File bench/scripts/run.ps1 -Test tb_dvp2ax_stream -Seed 1 -Wave -LogDir Temp/0923
 
   说明：
     - 库自测 demo 与 DVP2axi_stream 接入示例的 bind 目标不同，
@@ -26,6 +27,8 @@
       标记放在根目录（而非库内）是为了不提前创建库目录——库目录必须由 vlib 创建。
     - -Clean 只删除本脚本创建的工作库（work / work_demo / work_dvp2axi），
       且会先确认这三个库都没有被其他存活运行占用，不动其他目录。
+    - -Wave 会以 +acc 重新优化并把整设计信号记录到 <LogDir>/<Test>.wlf（验收/调试用）；
+      波形随仿真进程增量写入，仿真结束后文件保留，可用 vsim -view 或 GUI 打开。
 #>
 param(
   [ValidateSet("tb_vrf_axil_demo", "tb_dvp2ax_stream", "tb_vrf_axil_rst_window")]
@@ -35,6 +38,7 @@ param(
   [string] $LogDir = "log",
   [switch] $Fault,
   [switch] $Cover,
+  [switch] $Wave,
   [switch] $Clean
 )
 
@@ -226,9 +230,13 @@ if ($LASTEXITCODE -ne 0) {
 # 路径用 Tcl 花括号引用，避免路径中的特殊字符被 Tcl 解析
 $doCmd = "run -all; quit -f"
 if ($Cover) { $doCmd = "coverage save -onexit {$LogDir/$Test.ucdb}; run -all; quit -f" }
+# -Wave：记录整设计信号到 WLF（需 +acc 保留内部信号可见性，波形写入 <LogDir>/<Test>.wlf）
+#   注意：log 必须在 run 之前执行，否则前段仿真时间没有波形
+if ($Wave)  { $doCmd = "log -r /*; $doCmd" }
 
 $vsimArgs = @("-c", "-do", $doCmd, "-l", "$LogDir/$Test.log", "$libName.$Test")
 if ($Cover)      { $vsimArgs += "-coverage" }
+if ($Wave)       { $vsimArgs += @("-wlf", "$LogDir/$Test.wlf", "-voptargs=+acc") }
 if ($seedGiven)  { $vsimArgs += "+seed=$Seed" }
 if ($nrandGiven) { $vsimArgs += "+n_rand=$Nrand" }
 if ($Fault)      { $vsimArgs += "+fault_inject=1" }

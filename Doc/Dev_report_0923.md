@@ -75,7 +75,8 @@ powershell -File bench/scripts/regression.ps1 -Test tb_dvp2ax_stream -Seeds "1,2
 
 ### 2.3 未改动
 
-`bench/lib` 其余组件（IF/Pkg/Seq/Drv/Mon/Slv/Cov/Chk 的既有类）、`bench/scripts/*.ps1`、`Makefile`、`bench/abandoned/`、`RTL/Ref/`。
+`bench/lib` 其余组件（IF/Pkg/Seq/Drv/Mon/Slv/Cov/Chk 的既有类）、`bench/scripts/regression.ps1` / `check_env.ps1` / `sim.do`、`Makefile`、`bench/abandoned/`、`RTL/Ref/`。
+（`bench/scripts/run.ps1` 本轮新增 `-Wave` 开关，用于导出 WLF 波形，见 §8.7。）
 
 ---
 
@@ -297,4 +298,27 @@ powershell -File bench/scripts/regression.ps1 -Test tb_vrf_axil_rst_window -Seed
 | 编译 | 0 错误 0 告警（`vlog -sv` 单编译单元） |
 | 三用例 ×5 种子回归 | `tb_dvp2ax_stream` 5/5、`tb_vrf_axil_demo` 5/5、`tb_vrf_axil_rst_window` 5/5，全部 `REGRESSION PASSED`（既有用例无回退） |
 | 文件规模 | `RTL/DVP2axis.sv` 1143 → 1287；`vrf_axil_regmodel.svh` 386 → 456；`tb_dvp2ax_stream.sv` 841 → 1078；`Doc/Reg_v_0_0.md` 252 → 264（非空行口径，与 §2.2 一致） |
+
+### 8.7 波形/日志导出（验收留档）
+
+`bench/scripts/run.ps1` 新增 `-Wave` 开关：以 `-voptargs="+acc"` 重新优化（保留内部信号可见性），
+在 `run` 之前执行 `log -r /*` 记录整设计信号，波形增量写入 `<LogDir>/<Test>.wlf` 并在仿真结束后保留。
+
+```powershell
+powershell -File bench/scripts/run.ps1 -Test tb_dvp2ax_stream -Seed 1 -Wave -LogDir Temp/0923
+```
+
+本次验收留档目录 `Temp/0923/`（已在 `.gitignore` 覆盖范围内，不入库）：
+
+| 文件 | 大小 | 说明 |
+|---|---:|---|
+| `tb_dvp2ax_stream.wlf` | 1.7 MB | 波形数据库（整设计信号，465.185 µs / 22 帧 / 28 用例），可用 `vsim -view <file>` 或 GUI 打开 |
+| `tb_dvp2ax_stream.log` | 8.5 KB | `vsim -l` 仿真转录（含结论 `SIMULATION PASSED`） |
+| `tb_dvp2ax_stream_log.txt` | 75.6 KB | 用例级格式化日志（每个用例的期望/观测拍数、逐拍比对明细） |
+| `tb_dvp2ax_stream_report.txt` | 2.9 KB | 验证结论报告（检查项、覆盖率、失败清单） |
+| `tb_dvp2ax_stream_err.txt` | 0.2 KB | 失败用例格式化明细（本次为空） |
+| `tb_dvp2ax_stream.exit` | 0 | 退出码（0 = PASSED，供脚本/CI 稳定读取） |
+
+导出结果：**PASSED**——检查 1155 项（总线 969 + 帧级 186）失败 0，断言 55454/0，
+数据通路 28 个用例 / 22 帧 / 183 拍逐字节 0 失败，`vrf_axil_cg` 与 `vrf_dvp_cg` 均 100.00%，0 错误 0 告警。
 
